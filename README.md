@@ -6,7 +6,7 @@ An autonomous bookkeeper for a farmers' market's food-stamp token program.
 everything; only the market manager can approve money going out.
 
 > Status: working end to end: data, agent, double-entry books, approval gate and
-> web app (58 tests). The agent catches 9/9 planted mistakes with 0 false alarms.
+> web app with "ask why" (67 tests). The agent catches 9/9 planted mistakes with 0 false alarms.
 
 ## Start the app
 
@@ -175,6 +175,33 @@ python3 gate.py decide REQ-05 pay_verified_only --as jordan.lee
 python3 gate.py reset
 ```
 
+## Ask why (`explain.py`)
+
+Every finding and decision card has an **Ask why** box ("Why not just pay it?",
+"How sure are you?", "What would change your mind?", or any question you type).
+
+- **With Claude connected**, Claude (`claude-opus-5-5`) answers using only that finding's
+  records: the explanation, the evidence (file and line), the rule, the related approval
+  requests and decisions, and what the agent cleared. It cites `file:line`, defends the
+  decision, and says what new evidence would change it. It can explain but never approve.
+  The records go in as data, so text inside them (like the suspicious email) can't
+  instruct Claude. If Claude declines, the API automatically retries on a fallback model
+  (`fallbacks: "default"`).
+- **Without Claude** (no package, no key, no wifi), the box answers from the agent's
+  recorded reasoning: the explanation, rule, evidence and what would change the decision.
+  The page labels which one answered, so the demo never breaks.
+- Every question is written to the audit trail with who asked it and which source answered.
+
+To connect Claude:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-claude.txt
+export ANTHROPIC_API_KEY=your-key-here
+python3 server.py
+```
+
 ## Run it
 
 Only needs Python 3.10 or newer. Nothing to install.
@@ -185,7 +212,7 @@ python3 agent.py              # the agent's findings and Tuesday's payment batch
 python3 score.py              # grades the agent against the answer key
 python3 gate.py status        # the approval queue and the books
 python3 server.py             # the web app at http://localhost:8000
-python3 -m unittest -v        # 58 tests
+python3 -m unittest -v        # 67 tests
 ```
 
 Current score: **9/9 caught, 9/9 right action, 0 false alarms, payment batch exact.**

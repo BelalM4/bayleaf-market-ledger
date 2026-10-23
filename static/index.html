@@ -88,6 +88,13 @@
   .form { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-top: 10px; }
   .form label { display: grid; gap: 2px; font-size: 12px; color: var(--muted); }
   .hidden { display: none; }
+  .ask { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; }
+  .ask .row input { flex: 1; min-width: 200px; }
+  .ask .suggest { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+  .ask .suggest button { font-size: 12.5px; padding: 3px 10px; border-radius: 14px; background: var(--soft); }
+  .answer { background: var(--soft); border: 1px solid var(--line); border-left: 3px solid var(--violet); border-radius: 8px; padding: 10px 12px; margin-top: 8px; white-space: pre-wrap; font-size: 14px; }
+  .answer .q { font-weight: 600; margin-bottom: 4px; white-space: normal; }
+  .answer .src { margin-top: 6px; white-space: normal; }
   @media (max-width: 640px) {
     .wrap { padding: 0 14px; } .kpi .big { font-size: 20px; }
     .who { width: 100%; } .who select { flex: 1; min-width: 0; }
@@ -131,6 +138,8 @@ const ACTION = {
   hold_for_approval: ["Needs the manager", "p-hold"],
 };
 let S = null, tab = "decisions", lastScenario = null, flashEntry = null;
+const answers = {};       // finding id -> {question, result} or {question, pending: true}
+const SUGGESTED = ["Why not just pay it?", "How sure are you?", "What would change your mind?"];
 
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
@@ -160,7 +169,25 @@ function evidenceTable(ev) {
   </table></div></details>`;
 }
 function findingBody(f) {
-  return `<div class="explain">${esc(f.explanation)}</div><div class="rule"><b>Rule:</b> ${esc(f.rule)}</div>${evidenceTable(f.evidence)}`;
+  return `<div class="explain">${esc(f.explanation)}</div><div class="rule"><b>Rule:</b> ${esc(f.rule)}</div>${evidenceTable(f.evidence)}${askBox(f.id)}`;
+}
+function askBox(fid) {
+  const a = answers[fid];
+  const who = S.claude_connected ? "Claude answers from this finding's records" : "Claude isn't connected; answers come from the agent's recorded reasoning";
+  return `<div class="ask"><div class="row small"><b>Ask why</b><span class="muted">${who}</span></div>
+    <div class="suggest">${SUGGESTED.map((q) => `<button onclick="askWhy('${fid}', this.textContent)">${esc(q)}</button>`).join("")}</div>
+    <div class="row"><input id="ask-${fid}" placeholder="Ask anything about this decision…" onkeydown="if(event.key==='Enter')askWhy('${fid}', this.value)">
+      <button onclick="askWhy('${fid}', $('#ask-${fid}').value)">Ask</button></div>
+    ${a ? `<div class="answer"><div class="q">“${esc(a.question)}”</div>${a.pending ? `<span class="muted">Thinking…</span>` : esc(a.result.answer)}
+      ${a.result ? `<div class="src small">${a.result.source === "claude" ? `<span class="pill p-hold">Answered by Claude (${esc(a.result.model)})</span>` : `<span class="pill p-done">Agent's recorded reasoning</span>`}
+        ${a.result.note ? `<span class="muted">${esc(a.result.note)}</span>` : ""}</div>` : ""}</div>` : ""}</div>`;
+}
+async function askWhy(fid, question) {
+  question = (question || "").trim() || "Why did the agent do this?";
+  answers[fid] = {question, pending: true}; render();
+  const r = await api("/api/ask", {finding: fid, question, actor: $("#actor").value});
+  answers[fid] = {question, result: r.ok ? r.result : {answer: r.error || "Something went wrong.", source: "error"}};
+  const st = await api("/api/state"); S = st; render();
 }
 function entryChips(ids) { return ids.map((id) => `<span class="chip" onclick="go('books','${id}')">${id}</span>`).join(" "); }
 
@@ -294,7 +321,7 @@ const views = {
       <div class="grid2"><div class="card"><h3>What's real, what's simulated</h3>
         <p class="small"><b>Simulated:</b> the market, every vendor, shopper, swipe, deposit and dollar (8 Saturdays, Aug 29 to Oct 17, 2026).</p>
         <p class="small"><b>Real:</b> how SNAP token and matching programs work: no hot food on SNAP, match capped per shopper per day, the grant reimbursing redeemed match, vendors paid per token.</p>
-        <p class="small"><b>How we know it works:</b> 58 automated tests (<code>python3 -m unittest</code>). They check the answer key against the raw files, grade the agent, test every ledger rule and approval rule,
+        <p class="small"><b>How we know it works:</b> 67 automated tests (<code>python3 -m unittest</code>). They check the answer key against the raw files, grade the agent, test every ledger rule and approval rule,
         and change the data in "what if" scenarios to show the agent reasons instead of memorizing.</p></div>
       <div class="card"><h3>What the agent read</h3><p class="muted small">Fingerprints of every file behind this run, so any decision can be traced to the exact data.</p>
         <table>${S.sources_read.map((s) => `<tr><td>${esc(s.file)}</td><td class="muted small" style="font-family:ui-monospace,monospace">${s.sha256}</td></tr>`).join("")}</table></div></div>`;

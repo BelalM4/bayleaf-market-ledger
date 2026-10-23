@@ -9,13 +9,18 @@ The page is static/index.html. It talks to this server through a small JSON API:
     POST /api/decide      {request, option, actor, note}   -> 403 with the reason if not allowed
     POST /api/reset       start over from the agent's fresh run
     POST /api/scenario    {name, params}  "what if...?" on a scratch copy of the data
+    POST /api/ask         {finding, question, actor}  "ask why" (Claude if connected, else the recorded reasoning)
 """
+import importlib.util
 import json
+import os
 import sys
 import threading
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import explain
 import scenarios
 import score
 from gate import Gate, NotAllowed
@@ -48,10 +53,21 @@ class App:
             "scenarios": [{"name": n, "title": t, "description": d} for n, (t, d, _) in scenarios.SCENARIOS.items()],
             "vendors": {vid: v["name"] for vid, v in g.a.vendors.items()},
             "market_days": g.config["market_days"],
+            "claude_connected": claude_connected(),
         }
 
-    def handle(self, method, path, body):
+    def handle(self, method, path, body, client=None):
         """Returns (status, payload). Kept apart from HTTP so tests can call it directly."""
+        if method == "POST" and path == "/api/ask":
+            # outside the lock: a Claude answer can take a few seconds and shouldn't freeze the page
+            result = explain.ask(self.gate, body.get("finding", ""), body.get("question", ""), client=client)
+            with self.lock:
+                self.gate.audit.append({"at": datetime.now().isoformat(timespec="seconds"),
+                                        "actor": body.get("actor") or "viewer", "step": "asked_why",
+                                        "detail": f"{result['finding_id']}: \"{result.get('question', '')}\" "
+                                                  f"(answered by {result['source']})"})
+                self.gate.save()
+            return 200, {"ok": True, "result": result}
         with self.lock:
             if method == "GET" and path == "/api/state":
                 return 200, self.state()
@@ -70,6 +86,11 @@ class App:
                     return 400, {"ok": False, "error": "Unknown scenario"}
                 return 200, {"ok": True, "result": scenarios.run(body["name"], body.get("params"), self.data_dir)}
         return 404, {"ok": False, "error": "Not found"}
+
+
+def claude_connected():
+    has_sdk = importlib.util.find_spec("anthropic") is not None
+    return has_sdk and bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
 
 
 def make_handler(app):
