@@ -39,7 +39,10 @@ def build(a):
     for f in a.findings:
         if f["hold"]:
             holds[(f["hold"]["market_date"], f["hold"]["vendor_id"])] += f["hold"]["amount"]
-    unverified = {f["market_date"]: f["shortfall"] for f in a.findings if f["type"] == "match_float_negative"}
+    unverified = defaultdict(int)     # (market_date, "snap"/"match") -> tokens that can't exist
+    for f in a.findings:
+        if f["type"].endswith("_float_negative"):
+            unverified[(f["market_date"], f["type"].split("_")[0])] += f["shortfall"]
     dup_payment = {f["market_date"] + f["vendor_id"]: f["id"] for f in a.findings if f["type"] == "duplicate_ach_payment"}
     register = {p["ach_ref"]: p for p in a.register}
 
@@ -54,9 +57,10 @@ def build(a):
             {"file": "booth_terminal_log.csv", "market_date": day, "swipes": n})))
 
         turned_in = [r for r in a.redemptions if r["market_date"] == day]
-        lines = [dr("2000", sum(int(r["snap_tokens"]) for r in turned_in))]
-        fake = unverified.get(day, 0)
-        lines += [dr("2010", sum(int(r["match_tokens"]) for r in turned_in) - fake), dr("1900", fake)]
+        fake_snap, fake_match = unverified[(day, "snap")], unverified[(day, "match")]
+        lines = [dr("2000", sum(int(r["snap_tokens"]) for r in turned_in) - fake_snap),
+                 dr("2010", sum(int(r["match_tokens"]) for r in turned_in) - fake_match),
+                 dr("1900", fake_snap + fake_match)]
         for r in turned_in:
             vid = r["vendor_id"]
             gross = int(r["snap_tokens"]) + int(r["match_tokens"])
@@ -134,16 +138,18 @@ def tie_outs(a, led, batch=None):
           "; ".join(f"{f['id']}: {f['title']}" for f in missing))
 
     last = a.float_by_day[-1]
-    fake = sum(f.get("shortfall", 0) for f in a.findings if f["type"] == "match_float_negative")
+    fake_snap = sum(f["shortfall"] for f in a.findings if f["type"] == "snap_float_negative")
+    fake = sum(f["shortfall"] for f in a.findings if f["type"] == "match_float_negative")
     recovered = approved("recover_tokens", "2000", "credit")
     check("SNAP tokens outstanding = tokens shoppers still hold", led.balance("2000"),
-          last["snap"]["held_after"] + recovered, "token roll-forward (terminal vs turn-ins)",
-          f"{recovered:.0f} tokens put back after a turn-in was reversed" if recovered else "")
+          last["snap"]["held_after"] + fake_snap + recovered, "token roll-forward (terminal vs turn-ins)",
+          "; ".join(x for x in (f"{recovered:.0f} tokens put back after a turn-in was reversed" if recovered else "",
+                                f"{fake_snap} tokens that can't exist went to suspense" if fake_snap else "") if x))
     check("Match tokens outstanding = tokens shoppers still hold", led.balance("2010"), last["match"]["held_after"] + fake,
           "token roll-forward, not counting tokens that can't exist",
           f"{fake} tokens that can't exist went to suspense" if fake else "")
     resolved = approved("resolve_suspense", "1900", "credit")
-    check("Suspense = tokens still under review", led.balance("1900"), fake - resolved, "token roll-forward",
+    check("Suspense = tokens still under review", led.balance("1900"), fake + fake_snap - resolved, "token roll-forward",
           f"{resolved:.0f} resolved by the manager" if resolved else "")
 
     lines = batch["lines"]

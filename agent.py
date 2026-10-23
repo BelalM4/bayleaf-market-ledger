@@ -74,6 +74,10 @@ def by_txn_first(rows):
     return list(seen.values())
 
 
+def possessive(name):
+    return name + ("'" if name.endswith("s") else "'s")
+
+
 def usd(n):
     return f"${n:,.0f}"
 
@@ -314,6 +318,14 @@ class Agent:
             self.float_by_day.append(row)
 
     def _float_negative(self, kind, day, start, issued, turned_in, day_in, history):
+        """Tokens that can't exist were turned in. Work out whose counts to hold.
+
+        Hold every vendor whose count is unusually high (at least 20 tokens and 40% above its
+        median from earlier Saturdays), biggest jump first. If those jumps don't cover the
+        tokens that can't exist, keep adding the next-biggest jumps until they do. The missing
+        tokens are split in proportion to each vendor's jump, so each held vendor knows how many of its
+        tokens are in doubt.
+        """
         short = turned_in - start - issued
         jumps = []
         for r in day_in:
@@ -321,25 +333,42 @@ class Agent:
             past = history[(r["vendor_id"], kind)]
             if n and past:
                 usual = statistics.median(past)
-                jumps.append((n - usual, n, usual, r))
-        jump, n, usual, r = max(jumps, key=lambda j: j[0])
-        vid = r["vendor_id"]
+                jumps.append({"jump": n - usual, "n": n, "usual": usual, "row": r})
+        jumps.sort(key=lambda j: -j["jump"])
+        suspicious = [j for j in jumps if j["jump"] >= max(20, 0.4 * j["usual"])]
+        for j in jumps:
+            if sum(x["jump"] for x in suspicious) >= short:
+                break
+            if j not in suspicious:
+                suspicious.append(j)
+        total_jump = sum(max(j["jump"], 0) for j in suspicious) or 1
+        for j in suspicious:
+            j["share"] = int(short * max(j["jump"], 0) // total_jump)
+        suspicious[0]["share"] += short - sum(j["share"] for j in suspicious)   # rounding leftovers go to the biggest jump
+
         pending = day not in self.paid_days
-        others = ", ".join(f"{self.name(j[3]['vendor_id'])} {j[1]} (usual {j[2]:.0f})" for j in jumps if j[3] is not r)
-        self.add(
-            f"{kind}_float_negative", "hold_for_approval",
-            f"{nice(day)}: {short} more {kind.upper()} tokens turned in than exist",
-            f"Before {nice(day)}, shoppers held at most {start} {kind.upper()} tokens, and the booth handed out {issued} more, "
-            f"so no more than {start + issued} could be spent. Vendors turned in {turned_in}, which is {short} too many. "
-            f"Those tokens can't be real: they were miscounted or counterfeit. "
-            f"{self.name(vid)} turned in {n}, about {jump:.0f} above its usual {usual:.0f}, the biggest jump of any vendor "
-            f"(others: {others}). Holding its {n} {kind.upper()} tokens ({usd(n)}) until they are recounted. "
-            f"Its other tokens are not affected and get paid. Paying it now would mean billing the grant for tokens that never existed.",
-            "Token roll-forward: tokens held + handed out - turned in can never go below zero. Unusual counts are "
-            "compared with each vendor's median from earlier Saturdays.",
-            n, [ev("token_redemptions.csv", x, "vendor_id", f"{kind}_tokens", "counted_by") for x in day_in],
-            hold={"vendor_id": vid, "market_date": day, "amount": n} if pending else None,
-            market_date=day, vendor_id=vid, shortfall=short)
+        normal = [j for j in jumps if j not in suspicious]
+        others = ", ".join(f"{self.name(j['row']['vendor_id'])} {j['n']} (usual {j['usual']:.0f})" for j in normal) or "none"
+        held_names = " and ".join(self.name(j["row"]["vendor_id"]) for j in suspicious)
+        for j in suspicious:
+            r, n, vid = j["row"], j["n"], j["row"]["vendor_id"]
+            self.add(
+                f"{kind}_float_negative", "hold_for_approval",
+                f"{nice(day)}: {short} more {kind.upper()} tokens turned in than exist"
+                + (f" ({self.name(vid)})" if len(suspicious) > 1 else ""),
+                f"Before {nice(day)}, shoppers held at most {start} {kind.upper()} tokens, and the booth handed out {issued} more, "
+                f"so no more than {start + issued} could be spent. Vendors turned in {turned_in}, which is {short} too many. "
+                f"Those tokens can't be real: they were miscounted or counterfeit. "
+                f"{self.name(vid)} turned in {n}, about {j['jump']:.0f} above its usual {j['usual']:.0f}"
+                + (f". {held_names} are both far above normal, so both are held, and {j['share']} of the {short} missing "
+                   f"tokens are attributed to {self.name(vid)}" if len(suspicious) > 1 else ", the biggest jump of any vendor")
+                + f" (normal counts: {others}). Holding its {n} {kind.upper()} tokens ({usd(n)}) until they are recounted. "
+                f"Its other tokens are not affected and get paid. Paying it now would mean billing the grant for tokens that never existed.",
+                "Token roll-forward: tokens held + handed out - turned in can never go below zero. A count is unusual if it is "
+                "at least 20 tokens and 40% above that vendor's median from earlier Saturdays.",
+                n, [ev("token_redemptions.csv", x, "vendor_id", f"{kind}_tokens", "counted_by") for x in day_in],
+                hold={"vendor_id": vid, "market_date": day, "amount": n} if pending else None,
+                market_date=day, vendor_id=vid, shortfall=j["share"])
 
     def check_vendor_payments(self):
         """Every payment in the bank should be in the payout register exactly once, and the reverse."""
@@ -400,11 +429,11 @@ class Agent:
                        if r["vendor_id"] == vid and r["market_date"] == pending_day)
             self.add(
                 "bank_detail_change", "hold_for_approval",
-                f"Request to change {v['name']}'s bank account the day before payday",
+                f"Request to change {possessive(v['name'])} bank account the day before payday",
                 f"On {req['received_at']}, an {req['channel']} from {req['from_address']} asked to send {v['name']}'s money to an "
                 f"account ending {req['new_bank_last4']} instead of {v['bank_last4']}. It arrived the day before the "
                 f"{nice(payout_day)} payment ({usd(owed)} is due). Changing bank details by email is a common way to "
-                f"steal payments, so the agent did not change anything. It is holding {v['name']}'s {usd(owed)} until someone "
+                f"steal payments, so the agent did not change anything. It is holding {possessive(v['name'])} {usd(owed)} until someone "
                 f"calls {v['phone_on_file']}, the number already on file, not one from the email. "
                 "If the vendor confirms, the manager approves the change.",
                 "Bank details change only after a call-back to the phone number on file, approved by the market manager.",

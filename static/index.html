@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bayleaf Market Ledger</title>
+<style>
+  :root {
+    --bg: #f5f4ef; --panel: #ffffff; --ink: #1c2620; --muted: #5d6b62; --line: #e2e0d7; --soft: #faf9f5;
+    --accent: #2f6b3f; --accent-ink: #ffffff; --accent-soft: #e3f0e6;
+    --amber: #8a5300; --amber-soft: #fbefd9; --red: #a3312b; --red-soft: #fbe5e3;
+    --violet: #5a3e9c; --violet-soft: #ece6f9; --shadow: 0 1px 2px rgba(20,30,25,.06), 0 4px 16px rgba(20,30,25,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121614; --panel: #1a201d; --ink: #e6ece8; --muted: #9aa8a0; --line: #2c3530; --soft: #161b18;
+      --accent: #6cbf83; --accent-ink: #0d1410; --accent-soft: #1f3326;
+      --amber: #f0b45a; --amber-soft: #33281a; --red: #f08a82; --red-soft: #3a2220;
+      --violet: #b9a3f0; --violet-soft: #2a2440; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .num, td.num, .money { font-variant-numeric: tabular-nums; }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+  .top { display: flex; align-items: center; gap: 16px; padding: 14px 0; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+  .brand h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; }
+  .brand small { display: block; color: var(--muted); font-size: 13px; }
+  .who { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  select, input, textarea, button { font: inherit; color: inherit; }
+  select, input, textarea { background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+  textarea { width: 100%; min-height: 54px; resize: vertical; }
+  button { cursor: pointer; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); padding: 7px 14px; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .seats { color: var(--muted); font-size: 13px; padding: 0 0 12px; }
+  .seats b { color: var(--ink); font-weight: 600; }
+  nav { display: flex; gap: 4px; overflow-x: auto; }
+  nav button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 10px 12px; color: var(--muted); white-space: nowrap; }
+  nav button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+  nav .count { background: var(--violet-soft); color: var(--violet); border-radius: 10px; padding: 0 7px; font-size: 12px; margin-left: 4px; }
+  main { padding: 22px 0 60px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 22px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
+  .kpi .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .kpi .big { font-size: 24px; font-weight: 650; margin-top: 2px; }
+  .kpi .sub { color: var(--muted); font-size: 13px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 14px; box-shadow: var(--shadow); }
+  .card h3 { margin: 0 0 4px; font-size: 16px; }
+  .card.moment { border-color: var(--violet); }
+  .row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .row .amt { margin-left: auto; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }
+  .p-auto { background: var(--accent-soft); color: var(--accent); }
+  .p-open { background: var(--amber-soft); color: var(--amber); }
+  .p-hold { background: var(--violet-soft); color: var(--violet); }
+  .p-bad { background: var(--red-soft); color: var(--red); }
+  .p-done { background: var(--soft); color: var(--muted); border: 1px solid var(--line); }
+  .explain { margin: 10px 0; }
+  .rule { font-size: 13px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; margin: 8px 0; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.num, th.num { text-align: right; }
+  .scroll { overflow-x: auto; }
+  .options { display: grid; gap: 6px; margin: 12px 0 8px; }
+  .options label { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+  .options label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .req { color: var(--red); font-size: 12px; }
+  .decision { background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 10px; font-size: 14px; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: min(640px, calc(100% - 32px)); padding: 12px 16px; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.18); font-weight: 500; z-index: 10; }
+  .toast.err { background: var(--red-soft); color: var(--red); border: 1px solid var(--red); }
+  .toast.ok { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
+  .entry { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .entry.flash { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .entry table td { border: 0; padding: 2px 6px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+  .chip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; cursor: pointer; }
+  .ok { color: var(--accent); font-weight: 700; }
+  .bad { color: var(--red); font-weight: 700; }
+  .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 22px 0 10px; }
+  .form { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-top: 10px; }
+  .form label { display: grid; gap: 2px; font-size: 12px; color: var(--muted); }
+  .hidden { display: none; }
+  @media (max-width: 640px) {
+    .wrap { padding: 0 14px; } .kpi .big { font-size: 20px; }
+    .who { width: 100%; } .who select { flex: 1; min-width: 0; }
+    .kpis { grid-template-columns: 1fr 1fr; } .kpi { padding: 10px 12px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <div class="brand">
+        <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="var(--accent)"/><path d="M9 21c6 0 12-4 14-12-7 0-12 4-14 12zm0 0c2-3 5-6 9-8" stroke="var(--accent-ink)" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+        <div><h1>Bayleaf Market Ledger</h1><small id="asof"></small></div>
+      </div>
+      <div class="who">Acting as
+        <select id="actor" aria-label="Acting as"></select>
+      </div>
+      <button id="reset" title="Undo every decision and start from the agent's fresh run">Reset demo</button>
+    </div>
+    <div class="seats">Fills the seats of <b>token program bookkeeper</b> and <b>vendor payout clerk</b> at a farmers' market food-stamp program.
+      It prepares everything. Only the market manager can approve money going out.</div>
+    <nav id="tabs"></nav>
+  </div>
+</header>
+<main class="wrap">
+  <div class="kpis" id="kpis"></div>
+  <section id="view"></section>
+</main>
+<div id="toast" class="toast hidden" role="status"></div>
+
+<script>
+const TABS = [
+  ["decisions", "Needs a decision"], ["findings", "What the agent found"], ["cleared", "Checked & fine"],
+  ["payments", "Tuesday's payments"], ["books", "Books"], ["audit", "Audit trail"],
+  ["whatif", "What if…?"], ["proof", "Proof"],
+];
+const ACTION = {
+  auto_resolve: ["Fixed by the agent", "p-auto"],
+  escalate_open_item: ["Open item: someone must chase it", "p-open"],
+  hold_for_approval: ["Needs the manager", "p-hold"],
+};
+let S = null, tab = "decisions", lastScenario = null, flashEntry = null;
+
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const usd = (n) => (n < 0 ? "−$" : "$") + Math.abs(n).toLocaleString("en-US", {maximumFractionDigits: 2});
+const day = (d) => d ? new Date(d + "T12:00").toLocaleDateString("en-US", {month: "short", day: "numeric"}) : "";
+const pill = (action) => { const [t, c] = ACTION[action] || [action, "p-done"]; return `<span class="pill ${c}">${t}</span>`; };
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : {});
+  const j = await r.json();
+  if (j.state) S = j.state;
+  return {status: r.status, ...j};
+}
+function toast(msg, kind = "ok") {
+  const t = $("#toast"); t.textContent = msg; t.className = `toast ${kind}`;
+  clearTimeout(t._h); t._h = setTimeout(() => t.className = "toast hidden", kind === "err" ? 7000 : 3500);
+}
+function go(name, entryId) { tab = name; flashEntry = entryId || null; render(); if (entryId) setTimeout(() => document.getElementById(entryId)?.scrollIntoView({block: "center"}), 30); }
+
+// ---------- shared pieces ----------
+function evidenceTable(ev) {
+  if (!ev?.length) return "";
+  const keys = [...new Set(ev.flatMap((e) => Object.keys(e).filter((k) => k !== "file" && k !== "line")))];
+  return `<details><summary>Evidence: ${ev.length} record${ev.length > 1 ? "s" : ""}</summary><div class="scroll"><table>
+    <tr><th>Source</th>${keys.map((k) => `<th>${esc(k.replaceAll("_", " "))}</th>`).join("")}</tr>
+    ${ev.map((e) => `<tr><td><span class="chip">${esc(e.file)}:${e.line}</span></td>${keys.map((k) => `<td>${esc(e[k])}</td>`).join("")}</tr>`).join("")}
+  </table></div></details>`;
+}
+function findingBody(f) {
+  return `<div class="explain">${esc(f.explanation)}</div><div class="rule"><b>Rule:</b> ${esc(f.rule)}</div>${evidenceTable(f.evidence)}`;
+}
+function entryChips(ids) { return ids.map((id) => `<span class="chip" onclick="go('books','${id}')">${id}</span>`).join(" "); }
+
+// ---------- header + KPIs ----------
+function renderChrome() {
+  $("#asof").textContent = `${S.market} · as of ${new Date(S.as_of + "T12:00").toDateString()}`;
+  const sel = $("#actor"), cur = sel.value || "jordan.lee";
+  sel.innerHTML = Object.entries(S.users).map(([id, u]) => `<option value="${id}">${esc(u.name)} (${u.role.replaceAll("_", " ")})</option>`).join("");
+  sel.value = cur;
+  const pending = S.requests.filter((r) => r.status === "pending").length;
+  $("#tabs").innerHTML = TABS.map(([id, label]) =>
+    `<button class="${tab === id ? "on" : ""}" onclick="go('${id}')">${label}${id === "decisions" && pending ? `<span class="count">${pending}</span>` : ""}</button>`).join("");
+  const b = S.batch, okChecks = S.checks.filter((c) => c.ok).length, sc = S.score;
+  $("#kpis").innerHTML = `
+    <div class="kpi"><div class="label">Waiting on the manager</div><div class="big">${pending} decision${pending === 1 ? "" : "s"}</div>
+      <div class="sub">${S.summary.auto_resolve} fixed by the agent · ${S.summary.escalate_open_item} open items</div></div>
+    <div class="kpi"><div class="label">Tuesday's payments · ${esc(b.status.replaceAll("_", " "))}</div>
+      <div class="big money">${usd(b.lines.reduce((s, l) => s + l.pay_now, 0))} <span class="sub">ready</span></div>
+      <div class="sub">${usd(b.lines.reduce((s, l) => s + l.held, 0))} held · ${usd(b.lines.reduce((s, l) => s + l.paid, 0))} sent</div></div>
+    <div class="kpi"><div class="label">Books</div><div class="big ${S.all_tie_outs_ok ? "ok" : "bad"}">${okChecks}/${S.checks.length} agree</div>
+      <div class="sub">${S.entries.length} journal entries · debits = credits</div></div>
+    <div class="kpi"><div class="label">Graded against the answer key</div><div class="big">${sc.caught}/${sc.planted} caught</div>
+      <div class="sub">${sc.right_action}/${sc.planted} right action · ${sc.false_alarms.length} false alarms</div></div>`;
+}
+
+// ---------- tabs ----------
+const views = {
+  decisions() {
+    const order = (r) => (r.status === "pending" ? 0 : 1) * 10 + (r.kind === "match_float_negative" ? 0 : r.kind === "payout_batch" ? 1 : 2);
+    const reqs = [...S.requests].sort((a, b) => order(a) - order(b));
+    return `<p class="muted small">The agent stopped at each of these. Pick an option and decide; the books update immediately.
+      Try switching "Acting as" to the agent or a volunteer: the gate refuses them.</p>` + reqs.map(requestCard).join("");
+  },
+  findings() {
+    const groups = ["hold_for_approval", "escalate_open_item", "auto_resolve"];
+    return groups.map((g) => {
+      const fs = S.findings.filter((f) => f.action === g);
+      return fs.length ? `<div class="section-title">${ACTION[g][0]} (${fs.length})</div>` + fs.map((f) => `
+        <div class="card"><div class="row"><span class="chip">${f.id}</span><h3>${esc(f.title)}</h3><span class="amt">${usd(f.amount)}</span></div>
+        <div class="row small">${pill(f.action)} <span class="muted">${esc(f.type.replaceAll("_", " "))}</span></div>${findingBody(f)}</div>`).join("") : "";
+    }).join("") + `<div class="section-title">Looking ahead</div>` + S.warnings.map((w) => `
+      <div class="card"><div class="row"><span class="chip">${w.id}</span><h3>${esc(w.title)}</h3></div>
+      <div class="row small">${pill(w.action)}</div><div class="explain">${esc(w.explanation)}</div></div>`).join("");
+  },
+  cleared() {
+    return `<p class="muted small">Things that look suspicious at first glance. The agent checked each one, decided it was fine, and wrote down why.
+      A careless bookkeeper would raise false alarms here.</p>` + S.cleared.map((c) => `
+      <div class="card"><div class="row"><span class="pill p-auto">Fine</span><h3>${esc(c.title)}</h3></div>
+      <div class="explain">${esc(c.reason)}</div>${evidenceTable(c.evidence)}</div>`).join("");
+  },
+  payments() {
+    const b = S.batch;
+    return `<div class="card"><div class="row"><h3>${esc(b.batch_id)} · tokens from ${day(b.for_market_date)}, paid ${day(b.payout_date)}</h3>
+      <span class="amt"><span class="pill ${b.status === "approved" ? "p-auto" : b.status === "sent_back" ? "p-bad" : "p-hold"}">${esc(b.status.replaceAll("_", " "))}</span></span></div>
+      <p class="muted small">Prepared by the agent. ${b.approved_by ? `Approved by ${esc(S.users[b.approved_by]?.name)}.` : "Nothing is sent until the market manager approves."}
+      Money always goes to the account on file unless a change was confirmed by phone.</p>
+      <div class="scroll"><table><tr><th>Vendor</th><th>Account</th><th class="num">SNAP</th><th class="num">Match</th><th class="num">Owed</th>
+      <th class="num">Held</th><th class="num">Pay</th><th class="num">Sent</th><th class="num">Refused</th><th>Why held</th></tr>
+      ${b.lines.map((l) => `<tr><td>${esc(l.vendor)}</td><td>…${esc(l.pay_to_account)}</td><td class="num">${l.snap_tokens}</td><td class="num">${l.match_tokens}</td>
+        <td class="num">${usd(l.gross)}</td><td class="num">${l.held ? usd(l.held) : "–"}</td><td class="num"><b>${usd(l.pay_now)}</b></td>
+        <td class="num">${l.paid ? usd(l.paid) : "–"}</td><td class="num">${l.forfeited ? usd(l.forfeited) : "–"}</td>
+        <td>${l.hold_reasons.map((id) => `<span class="chip" title="${esc(S.findings.find((f) => f.id === id)?.title)}">${id}</span>`).join(" ")}</td></tr>`).join("")}
+      </table></div></div>`;
+  },
+  books() {
+    const q = (window._q || "").toLowerCase();
+    const acct = Object.fromEntries(S.trial_balance.map((a) => [a.code, a.name]));
+    const entries = [...S.entries].reverse().filter((e) => !q || JSON.stringify(e).toLowerCase().includes(q) ||
+      e.lines.some((l) => acct[l.account].toLowerCase().includes(q)));
+    return `<div class="card"><h3>Tie-outs: does each balance agree with an outside record?</h3>
+      <p class="muted small">Every important balance is checked against something the ledger didn't create: the bank, the token counts, the payment batch.</p>
+      <div class="scroll"><table><tr><th></th><th>Check</th><th class="num">Books</th><th class="num">Outside</th><th>Compared with</th><th>Explained by</th></tr>
+      ${S.checks.map((c) => `<tr><td class="${c.ok ? "ok" : "bad"}">${c.ok ? "✓" : "✗"}</td><td>${esc(c.name)}</td><td class="num">${usd(c.ledger)}</td>
+        <td class="num">${usd(c.outside)}</td><td class="muted">${esc(c.source)}</td><td class="muted">${esc(c.explains)}</td></tr>`).join("")}</table></div></div>
+      <div class="grid2">
+      <div class="card"><h3>Trial balance</h3><p class="muted small">Books closed through ${day(S.locked_through)}; nothing can be posted on or before that date.</p>
+        <table><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr>
+        ${S.trial_balance.filter((a) => a.debit || a.credit).map((a) => `<tr><td><span class="muted">${a.code}</span> ${esc(a.name)}</td>
+          <td class="num">${a.debit ? usd(a.debit) : ""}</td><td class="num">${a.credit ? usd(a.credit) : ""}</td></tr>`).join("")}
+        <tr><td><b>Total</b></td><td class="num"><b>${usd(S.trial_balance.reduce((s, a) => s + a.debit, 0))}</b></td>
+          <td class="num"><b>${usd(S.trial_balance.reduce((s, a) => s + a.credit, 0))}</b></td></tr></table></div>
+      <div class="card"><h3>Journal (${S.entries.length} entries, newest first)</h3>
+        <input placeholder="Search: vendor, account, JE-0080, Green Acres…" value="${esc(window._q || "")}" oninput="window._q=this.value; render(); this.focus(); this.setSelectionRange(this.value.length,this.value.length)" style="width:100%;margin:6px 0 10px">
+        <div style="max-height:560px;overflow:auto">${entries.slice(0, 120).map((e) => `
+          <div class="entry ${flashEntry === e.id ? "flash" : ""}" id="${e.id}"><div class="row small"><span class="chip">${e.id}</span><b>${day(e.date)}</b>
+            ${e.approved_by ? `<span class="pill p-hold">approved by ${esc(S.users[e.approved_by]?.name)}</span>` : ""}</div>
+            <div class="small" style="margin:4px 0">${esc(e.memo)}</div>
+            <table>${e.lines.map((l) => `<tr><td class="small">${l.debit ? "" : "&nbsp;&nbsp;&nbsp;&nbsp;"}${l.account} ${esc(acct[l.account])}${l.vendor_id ? ` · ${esc(S.vendors[l.vendor_id])}` : ""}</td>
+              <td class="num small">${l.debit ? usd(l.debit / 100) : ""}</td><td class="num small">${l.credit ? usd(l.credit / 100) : ""}</td></tr>`).join("")}</table>
+            <div class="muted small">Source: ${esc(Object.entries(e.source).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(" · "))}</div></div>`).join("")}
+        </div></div></div>`;
+  },
+  audit() {
+    return `<p class="muted small">Who did what, when, and why: the agent's steps, every request, every decision, and every refused attempt.</p>
+      <div class="card"><div class="scroll"><table><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr>
+      ${[...S.audit].reverse().map((a) => `<tr><td class="muted small" style="white-space:nowrap">${esc(a.at.replace("T", " "))}</td>
+        <td>${esc(S.users[a.actor]?.name || a.actor)}</td><td>${a.step === "refused" ? `<span class="pill p-bad">refused</span>` : esc(a.step.replaceAll("_", " "))}</td>
+        <td class="small">${esc(a.detail)}</td></tr>`).join("")}</table></div></div>`;
+  },
+  whatif() {
+    const v = Object.entries(S.vendors), r = lastScenario;
+    return `<p class="muted small">Change the records and watch the agent react. Each run uses a scratch copy of the data; the real books and approvals are untouched.</p>
+      <div class="grid2">${S.scenarios.filter((s) => s.name !== "change_count").map((s) => `
+        <div class="card"><h3>${esc(s.title)}</h3><p class="muted small">${esc(s.description)}</p>
+        <button class="primary" onclick="runScenario('${s.name}')">Run it</button></div>`).join("")}
+        <div class="card"><h3>Change any vendor's token count</h3><p class="muted small">Your own scenario: add or remove tokens from any vendor on any day.</p>
+          <div class="form">
+            <label>Vendor<select id="sc-v">${v.map(([id, n]) => `<option value="${id}" ${id === "V02" ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>
+            <label>Day<select id="sc-d">${S.market_days.map((d) => `<option value="${d}" ${d === S.market_days.at(-1) ? "selected" : ""}>${day(d)}</option>`).join("")}</select></label>
+            <label>Tokens<select id="sc-k"><option value="match">match (red)</option><option value="snap">SNAP (green)</option></select></label>
+            <label>Add<input id="sc-n" type="number" value="70" style="width:80px"></label>
+            <button class="primary" onclick="runScenario('change_count', {vendor_id: $('#sc-v').value, market_date: $('#sc-d').value, kind: $('#sc-k').value, delta: $('#sc-n').value})">Run it</button>
+          </div></div></div>
+      ${r ? `<div class="card moment"><h3>Result: ${esc(r.title)}</h3>
+        ${!r.new_findings.length && !r.gone_findings.length && !r.changed_findings.length ? `<p>No change: the agent's findings are the same as before.</p>` : ""}
+        ${r.new_findings.map((f) => `<div class="decision"><span class="pill p-hold">new</span> <b>${esc(f.title)}</b> ${pill(f.action)}<div class="small" style="margin-top:6px">${esc(f.explanation)}</div></div>`).join("")}
+        ${r.changed_findings.map((c) => `<div class="decision"><span class="pill p-open">changed</span> <s class="muted">${esc(c.before.title)}</s> → <b>${esc(c.after.title)}</b><div class="small" style="margin-top:6px">${esc(c.after.explanation)}</div></div>`).join("")}
+        ${r.gone_findings.map((f) => `<div class="decision"><span class="pill p-auto">no longer a problem</span> <s>${esc(f.title)}</s></div>`).join("")}
+        <p class="small">Tuesday's batch: held ${usd(r.batch_before.total_held)} → <b>${usd(r.batch_after.total_held)}</b>, pay ${usd(r.batch_before.total_pay_now)} → <b>${usd(r.batch_after.total_pay_now)}</b></p></div>` : ""}`;
+  },
+  proof() {
+    const sc = S.score;
+    return `<div class="card"><h3>Graded against the answer key</h3>
+      <p class="muted small">The data generator planted 9 mistakes and 3 traps, and wrote them to an answer key. The agent is not allowed to open the key
+      (it gets an error if it tries); only the grader reads it.</p>
+      <table><tr><th>Planted</th><th>Type</th><th>Caught</th><th>Action</th><th>Finding</th></tr>
+      ${sc.rows.map((r) => `<tr><td>${r.id}</td><td>${esc(r.type.replaceAll("_", " "))}</td><td class="${r.caught ? "ok" : "bad"}">${r.caught ? "✓" : "✗"}</td>
+        <td class="${r.action_ok ? "ok" : "bad"}">${r.action_ok ? "✓ " : "✗ "}<span class="muted small">${esc(r.expected_action.replaceAll("_", " "))}</span></td><td><span class="chip">${r.finding || ""}</span></td></tr>`).join("")}</table>
+      <p>False alarms: <b>${sc.false_alarms.length}</b> · Payment batch exactly right: <b class="${sc.batch_exact ? "ok" : "bad"}">${sc.batch_exact ? "yes" : "no"}</b> ·
+      Grant warning raised: <b class="${sc.warnings_ok ? "ok" : "bad"}">${sc.warnings_ok ? "yes" : "no"}</b></p></div>
+      <div class="grid2"><div class="card"><h3>What's real, what's simulated</h3>
+        <p class="small"><b>Simulated:</b> the market, every vendor, shopper, swipe, deposit and dollar (8 Saturdays, Aug 29 to Oct 17, 2026).</p>
+        <p class="small"><b>Real:</b> how SNAP token and matching programs work: no hot food on SNAP, match capped per shopper per day, the grant reimbursing redeemed match, vendors paid per token.</p>
+        <p class="small"><b>How we know it works:</b> 58 automated tests (<code>python3 -m unittest</code>). They check the answer key against the raw files, grade the agent, test every ledger rule and approval rule,
+        and change the data in "what if" scenarios to show the agent reasons instead of memorizing.</p></div>
+      <div class="card"><h3>What the agent read</h3><p class="muted small">Fingerprints of every file behind this run, so any decision can be traced to the exact data.</p>
+        <table>${S.sources_read.map((s) => `<tr><td>${esc(s.file)}</td><td class="muted small" style="font-family:ui-monospace,monospace">${s.sha256}</td></tr>`).join("")}</table></div></div>`;
+  },
+};
+
+function requestCard(r) {
+  const f = r.finding_detail, d = r.decision, isBatch = r.kind === "payout_batch", moment = r.kind === "match_float_negative" && r.status === "pending";
+  const b = S.batch;
+  const body = isBatch
+    ? `<div class="explain">Pay ${b.lines.filter((l) => l.pay_now).length} vendors for their ${day(b.for_market_date)} tokens.
+        Lines with an open hold are not paid until that hold is decided.</div>
+       <div class="scroll"><table><tr><th>Vendor</th><th class="num">Owed</th><th class="num">Held</th><th class="num">Pay now</th></tr>
+       ${b.lines.map((l) => `<tr><td>${esc(l.vendor)}</td><td class="num">${usd(l.gross)}</td><td class="num">${l.held ? usd(l.held) : "–"}</td><td class="num"><b>${usd(l.pay_now)}</b></td></tr>`).join("")}</table></div>`
+    : findingBody(f);
+  const decide = r.status === "pending" ? `
+    <div class="options">${r.options.map((o, i) => `<label><input type="radio" name="opt-${r.id}" value="${o.key}" ${i === 0 ? "checked" : ""}>
+      <span>${esc(o.label)} ${o.note_required ? `<span class="req">· needs a note</span>` : ""}</span></label>`).join("")}</div>
+    <textarea id="note-${r.id}" placeholder="Note (why you decided this; required for some options)"></textarea>
+    <div class="row" style="margin-top:8px"><button class="primary" onclick="decide('${r.id}')">Decide as ${esc(S.users[$("#actor").value || "jordan.lee"]?.name)}</button>
+      <span class="muted small">Requested by the agent, ${esc(r.requested_at.replace("T", " "))}</span></div>`
+    : `<div class="decision"><b>${esc(d.label)}</b>. Decided by ${esc(S.users[d.by]?.name)} at ${esc(d.at.replace("T", " "))}
+       ${d.note ? `<div class="small">“${esc(d.note)}”</div>` : ""}<div class="small muted">Journal entries posted: ${d.entries.length ? entryChips(d.entries) : "none"}</div></div>`;
+  return `<div class="card ${moment ? "moment" : ""}">
+    <div class="row"><span class="chip">${r.id}</span><h3>${esc(r.title)}</h3>
+      <span class="amt">${usd(isBatch && r.status === "pending" ? b.lines.reduce((s, l) => s + l.pay_now, 0) : r.amount)}</span></div>
+    <div class="row small">${r.status === "pending" ? `<span class="pill p-hold">waiting for the manager</span>` : `<span class="pill p-done">decided</span>`}
+      ${f ? `<span class="muted">from finding ${f.id}</span>` : ""}${moment ? ` <span class="pill p-bad">caught before paying</span>` : ""}</div>
+    ${body}${decide}</div>`;
+}
+
+async function decide(id) {
+  const option = document.querySelector(`input[name="opt-${id}"]:checked`)?.value;
+  const note = $(`#note-${id}`).value, actor = $("#actor").value;
+  const r = await api("/api/decide", {request: id, option, actor, note});
+  if (r.ok) toast(`${id}: ${r.request.decision.label}. ${r.request.decision.entries.length} journal entries posted; books still agree.`);
+  else toast(`Refused: ${r.error}`, "err");
+  render();
+}
+async function runScenario(name, params) {
+  const r = await api("/api/scenario", {name, params});
+  lastScenario = r.result; render();
+}
+function render() { if (!S) return; renderChrome(); $("#view").innerHTML = views[tab](); }
+
+$("#actor").addEventListener("change", render);
+$("#reset").addEventListener("click", async () => {
+  if (!confirm("Undo every decision and start over from the agent's fresh run?")) return;
+  await api("/api/reset", {}); lastScenario = null; toast("Reset: the agent re-ran and rebuilt the books."); render();
+});
+api("/api/state").then((r) => { S = r; render(); });
+</script>
+</body>
+</html>

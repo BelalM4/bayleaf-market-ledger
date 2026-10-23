@@ -136,6 +136,24 @@ class TestAgentOnChangedData(unittest.TestCase):
         self.assertEqual(candles["held"], 6)
         self.assertIn(("ineligible_vendor_match", "2026-10-17", "V08"), self.types(run))
 
+    def test_two_inflated_counts_both_held(self):
+        import scenarios
+        scenarios.change_count(self.tmp, vendor_id="V02", market_date="2026-10-17", kind="match", delta=70)
+        run = self.run_agent()
+        floats = {f["vendor_id"]: f for f in run["findings"] if f["type"] == "match_float_negative"}
+        self.assertEqual(set(floats), {"V01", "V02"})
+        self.assertEqual(sum(f["shortfall"] for f in floats.values()), 92)
+
+    def test_inflated_snap_count_goes_to_suspense_and_books_tie_out(self):
+        import books
+        import scenarios
+        scenarios.change_count(self.tmp, vendor_id="V04", market_date="2026-10-17", kind="snap", delta=60)
+        a = agent.Agent(self.tmp)
+        run = a.run()
+        self.assertIn(("snap_float_negative", "2026-10-17", "V04"), self.types(run))
+        led = books.build(a)
+        self.assertEqual([c["name"] for c in books.tie_outs(a, led) if not c["ok"]], [])
+
     def test_payment_missing_from_bank_is_flagged(self):
         edit_csv(self.tmp / "bank_statement.csv", lambda rows: [r for r in rows if r["reference"] != "ACH1006V03"])
         self.assertIn(("payment_not_in_bank", "2026-10-03", "V03"), self.types(self.run_agent()))

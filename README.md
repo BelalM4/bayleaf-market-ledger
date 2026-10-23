@@ -5,8 +5,27 @@ An autonomous bookkeeper for a farmers' market's food-stamp token program.
 **Seats it fills:** token program bookkeeper and vendor payout clerk. It prepares
 everything; only the market manager can approve money going out.
 
-> Status: data, agent, double-entry books and approval gate are done (51 tests).
-> The agent catches 9/9 planted mistakes with 0 false alarms. The web page comes next.
+> Status: working end to end: data, agent, double-entry books, approval gate and
+> web app (58 tests). The agent catches 9/9 planted mistakes with 0 false alarms.
+
+## Start the app
+
+```bash
+python3 server.py
+```
+
+Then open **http://localhost:8000**. Nothing to install (Python 3.10+).
+
+| Tab | What it shows |
+|---|---|
+| Needs a decision | The agent's six approval requests. Switch "Acting as" to try approving as the agent or a volunteer, and watch the gate refuse. |
+| What the agent found | All findings, each with the explanation, the rule and the evidence (file and line) |
+| Checked & fine | Things that look wrong but aren't, and why the agent didn't flag them |
+| Tuesday's payments | The payment batch: owed, held, paid, refused, and the account each payment goes to |
+| Books | 17 tie-outs, the trial balance, and every journal entry with its source |
+| Audit trail | Every step, request, decision and refused attempt |
+| What if…? | Change the records (or any vendor's token count) and watch the agent react, on a scratch copy |
+| Proof | The score against the answer key, what's real vs. simulated, and fingerprints of the files read |
 
 ## The company (fictional)
 
@@ -165,7 +184,8 @@ python3 generate_data.py      # rebuilds data/ (same files every time)
 python3 agent.py              # the agent's findings and Tuesday's payment batch
 python3 score.py              # grades the agent against the answer key
 python3 gate.py status        # the approval queue and the books
-python3 -m unittest -v        # 51 tests
+python3 server.py             # the web app at http://localhost:8000
+python3 -m unittest -v        # 58 tests
 ```
 
 Current score: **9/9 caught, 9/9 right action, 0 false alarms, payment batch exact.**
