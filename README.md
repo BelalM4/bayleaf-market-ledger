@@ -5,9 +5,8 @@ An autonomous bookkeeper for a farmers' market's food-stamp token program.
 **Seats it fills:** token program bookkeeper and vendor payout clerk. It prepares
 everything; only the market manager can approve money going out.
 
-> Status: the fake company, its answer key and the agent are done. The agent
-> catches 9/9 planted mistakes with 0 false alarms. The double-entry ledger, the
-> approval screen and the web page come next.
+> Status: data, agent, double-entry books and approval gate are done (51 tests).
+> The agent catches 9/9 planted mistakes with 0 false alarms. The web page comes next.
 
 ## The company (fictional)
 
@@ -103,6 +102,60 @@ batch with holds, marked `awaiting_approval`. The agent has no way to send money
 | Bank changes | Requests to change where money goes. Never applied by email |
 | Grant | Claims vs. tokens turned in, the bank receipt, and whether the money lasts the season |
 
+## The books (`ledger.py`, `books.py`)
+
+**Double entry** means every entry moves money between at least two accounts, and
+debits always equal credits. The ledger refuses, with an error, any entry that
+doesn't balance, uses an unknown account, has a bad line, or is dated in a
+**closed month** (August and September are closed; a fix to September gets posted
+in October with a note). Amounts are whole cents, so there's no rounding.
+
+`books.py` turns every record into an entry that points back to its source file:
+
+| What happened | Debit | Credit |
+|---|---|---|
+| Booth hands out SNAP tokens | 1100 EBT Receivable | 2000 SNAP Tokens Outstanding |
+| Booth hands out match tokens | 1210 Grant Unbilled | 2010 Match Tokens Outstanding |
+| Vendor turns tokens in | 2000 / 2010 | 2100 Vendor Payable (or 2110 On Hold) |
+| Tokens that can't exist | 1900 Suspense | |
+| EBT deposit arrives | 1000 Cash | 1100 EBT Receivable |
+| Market pays a vendor | 2100 Vendor Payable | 1000 Cash |
+| Bank pays someone twice | 1400 Due from Bank | 1000 Cash |
+| Bill the grant / grant pays | 1200 Grant Billed / 1000 Cash | 1210 / 1200 |
+
+Then **17 tie-outs** check each important balance against an outside source:
+- Cash vs. the bank statement
+- EBT receivable vs. swipes not yet deposited (exactly the missing $25)
+- Tokens outstanding vs. the token count
+- Suspense vs. the 22 tokens that can't exist
+- Vendor payable vs. the payment batch, vendor by vendor (the subledger)
+- Due from bank vs. the duplicate payment
+
+All pass, before and after every approval decision.
+
+## The approval gate (`gate.py`)
+
+The agent prepares six requests: the payment batch, plus one for each money
+decision. Only the market manager (`jordan.lee`) can decide them.
+
+- **Segregation of duties:** whoever requests something can't approve it. The agent
+  requests everything, so it can never approve anything. A volunteer can only view.
+- Each request has specific choices, and each choice posts specific balanced
+  entries marked with who approved them. Overrides, like paying tokens that can't
+  exist, require a written note, and the cost shows up as a loss on the books.
+- Each request can be decided once. Refused attempts are written to the audit trail too.
+- Releasing a hold after the batch is approved pays it as a separate payment.
+- A confirmed bank change sends the money to the new account. Otherwise it goes to
+  the account on file.
+
+```bash
+python3 gate.py status
+python3 gate.py decide REQ-01 approve --as agent        # REFUSED: segregation of duties
+python3 gate.py decide REQ-01 approve --as jordan.lee   # pays $470, books still tie out
+python3 gate.py decide REQ-05 pay_verified_only --as jordan.lee
+python3 gate.py reset
+```
+
 ## Run it
 
 Only needs Python 3.10 or newer. Nothing to install.
@@ -111,7 +164,8 @@ Only needs Python 3.10 or newer. Nothing to install.
 python3 generate_data.py      # rebuilds data/ (same files every time)
 python3 agent.py              # the agent's findings and Tuesday's payment batch
 python3 score.py              # grades the agent against the answer key
-python3 -m unittest -v        # 27 tests
+python3 gate.py status        # the approval queue and the books
+python3 -m unittest -v        # 51 tests
 ```
 
 Current score: **9/9 caught, 9/9 right action, 0 false alarms, payment batch exact.**

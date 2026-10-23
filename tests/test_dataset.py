@@ -147,7 +147,7 @@ class TestDataset(unittest.TestCase):
     def test_opening_balances_balance(self):
         accts = json.loads((DATA / "opening_balances.json").read_text())["accounts"]
         debits = sum(a["balance"] for a in accts if a["type"] in ("asset", "expense"))
-        credits = sum(a["balance"] for a in accts if a["type"] in ("liability", "equity"))
+        credits = sum(a["balance"] for a in accts if a["type"] in ("liability", "equity", "income"))
         self.assertEqual(debits, credits)
 
     def test_expected_batch_matches_turn_ins(self):

@@ -5,6 +5,7 @@
     "snap": 64,
     "match": 38
   },
+  "match_redeemed_not_yet_billed": 612,
   "accounts": [
     {
       "code": "1000",
@@ -22,13 +23,31 @@
       "code": "1200",
       "name": "Grant Receivable - Billed",
       "type": "asset",
-      "balance": 612
+      "balance": 0
     },
     {
       "code": "1210",
       "name": "Grant Receivable - Unbilled Match",
       "type": "asset",
-      "balance": 38
+      "balance": 650
+    },
+    {
+      "code": "1400",
+      "name": "Due from Bank - Duplicate Payments",
+      "type": "asset",
+      "balance": 0
+    },
+    {
+      "code": "1410",
+      "name": "Due from Vendors",
+      "type": "asset",
+      "balance": 0
+    },
+    {
+      "code": "1900",
+      "name": "Suspense - Unverified Tokens",
+      "type": "asset",
+      "balance": 0
     },
     {
       "code": "2000",
@@ -49,14 +68,32 @@
       "balance": 0
     },
     {
+      "code": "2110",
+      "name": "Vendor Payable - On Hold",
+      "type": "liability",
+      "balance": 0
+    },
+    {
       "code": "3000",
       "name": "Net Assets",
       "type": "equity",
       "balance": 8548
     },
     {
+      "code": "4100",
+      "name": "Forfeited Token Income",
+      "type": "income",
+      "balance": 0
+    },
+    {
       "code": "5000",
       "name": "Unreimbursed Match Expense",
+      "type": "expense",
+      "balance": 0
+    },
+    {
+      "code": "5010",
+      "name": "Token Program Losses",
       "type": "expense",
       "balance": 0
     }

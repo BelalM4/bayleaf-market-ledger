@@ -421,7 +421,7 @@ class Agent:
             by_month[r["market_date"][:7]] += int(r["match_tokens"])
         first_month = self.days[0][:7]
         for c in self.claims:
-            expected = by_month[c["month"]] + (self.opening["accounts_by_code"]["1200"] if c["month"] == first_month else 0)
+            expected = by_month[c["month"]] + (self.opening["match_redeemed_not_yet_billed"] if c["month"] == first_month else 0)
             claimed = round(float(c["amount_claimed"]))
             receipt = next((b for b in self.bank if b["reference"] == c["claim_id"]), None)
             if claimed == expected and receipt and round(float(receipt["amount"])) == claimed:
@@ -489,7 +489,6 @@ class Agent:
     # ---------- run ----------
 
     def run(self):
-        self.opening["accounts_by_code"] = {a["code"]: a["balance"] for a in self.opening["accounts"]}
         self.note("start", f"Read {len(self.src.read_log)} source files")
         for check in (self.check_terminal_duplicates, self.check_settlements, self.check_match_cap,
                       self.check_redemptions, self.check_token_float, self.check_vendor_payments,
