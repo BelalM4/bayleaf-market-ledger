@@ -1,0 +1,235 @@
+{
+  "seed": 1023,
+  "today": "2026-10-19",
+  "payout_date": "2026-10-20",
+  "planted": [
+    {
+      "id": "P1",
+      "type": "duplicate_terminal_row",
+      "expected_action": "auto_resolve",
+      "where": {
+        "file": "booth_terminal_log.csv",
+        "txn_id": "T0912-001"
+      },
+      "amount": 10,
+      "plain_english": "The card terminal export lists the same swipe twice. It happened once: the bank deposit agrees with one copy."
+    },
+    {
+      "id": "P2",
+      "type": "late_settlement",
+      "expected_action": "auto_resolve",
+      "where": {
+        "file": "bank_statement.csv",
+        "txn_id": "T0919-004",
+        "reference": "EBT-0919-L1"
+      },
+      "amount": 20,
+      "plain_english": "A Sep 19 swipe was missing from the Sep 21 deposit but arrived on its own on Sep 28. Timing difference, nothing lost."
+    },
+    {
+      "id": "P3",
+      "type": "missing_settlement",
+      "expected_action": "escalate_open_item",
+      "where": {
+        "file": "booth_terminal_log.csv",
+        "txn_id": "T1010-002"
+      },
+      "amount": 25,
+      "plain_english": "An Oct 10 swipe never reached the bank. The market handed out tokens but was never paid. Someone must call the EBT processor."
+    },
+    {
+      "id": "P4",
+      "type": "match_over_cap",
+      "expected_action": "hold_for_approval",
+      "where": {
+        "file": "booth_terminal_log.csv",
+        "shopper_card": "C-9004",
+        "market_date": "2026-09-26"
+      },
+      "amount": 5,
+      "plain_english": "One shopper swiped twice on Sep 26 and got $15 of free match. The cap is $10, so $5 is not covered by the grant."
+    },
+    {
+      "id": "P5",
+      "type": "ineligible_vendor_snap",
+      "expected_action": "hold_for_approval",
+      "where": {
+        "file": "token_redemptions.csv",
+        "vendor_id": "V07",
+        "market_date": "2026-10-17"
+      },
+      "amount": 12,
+      "plain_english": "The pizza stand sells hot food, which SNAP cannot pay for, yet it turned in 12 SNAP tokens. Hold the $12."
+    },
+    {
+      "id": "P6",
+      "type": "redemption_while_absent",
+      "expected_action": "hold_for_approval",
+      "where": {
+        "file": "token_redemptions.csv",
+        "vendor_id": "V06",
+        "market_date": "2026-09-05"
+      },
+      "amount": 18,
+      "plain_english": "Little Creek Dairy turned in 18 tokens on Sep 5, but the attendance log says it wasn't there. It was already paid. One of the two records is wrong."
+    },
+    {
+      "id": "P7",
+      "type": "match_float_negative",
+      "expected_action": "hold_for_approval",
+      "where": {
+        "file": "token_redemptions.csv",
+        "vendor_id": "V01",
+        "market_date": "2026-10-17"
+      },
+      "amount": 168,
+      "extra_tokens": 40,
+      "shortfall": 22,
+      "plain_english": "On Oct 17 vendors turned in 22 more match tokens than shoppers could possibly have held. Green Acres' count is far above normal. Hold its match payout until the tokens are recounted."
+    },
+    {
+      "id": "P8",
+      "type": "duplicate_ach_payment",
+      "expected_action": "escalate_open_item",
+      "where": {
+        "file": "bank_statement.csv",
+        "reference": "ACH0929V02"
+      },
+      "amount": 202,
+      "plain_english": "The bank sent Sunny Slope's Sep 29 payment twice. Ask the bank to reverse one, or deduct it from a future payout."
+    },
+    {
+      "id": "P9",
+      "type": "bank_detail_change",
+      "expected_action": "hold_for_approval",
+      "where": {
+        "file": "bank_change_requests.csv",
+        "vendor_id": "V05"
+      },
+      "amount": 27,
+      "plain_english": "An email from an unfamiliar address asked to change Honeycomb's bank account the day before payday. Hold the payment until someone calls the phone number on file."
+    }
+  ],
+  "traps": [
+    {
+      "id": "T1",
+      "type": "redeemed_more_than_issued_same_day",
+      "where": {
+        "market_date": "2026-09-12"
+      },
+      "plain_english": "On rainy Sep 12, vendors turned in more SNAP tokens than the booth handed out that day.",
+      "why_not_an_error": "Shoppers held lots of tokens left over from Sep 5, when the market closed early. The season-to-date token count never goes negative."
+    },
+    {
+      "id": "T2",
+      "type": "late_settlement_looks_missing",
+      "where": {
+        "txn_id": "T0919-004"
+      },
+      "plain_english": "Looking only at the Sep 21 deposit, one swipe seems to be missing.",
+      "why_not_an_error": "It arrived as its own deposit on Sep 28 (see P2)."
+    },
+    {
+      "id": "T3",
+      "type": "two_swipes_under_cap",
+      "where": {
+        "shopper_card": "C-9004",
+        "market_date": "2026-09-19"
+      },
+      "plain_english": "One shopper swiped twice on Sep 19 and got match both times.",
+      "why_not_an_error": "Total match was 4 + 5 = $9, under the $10 cap."
+    }
+  ],
+  "warnings": [
+    {
+      "id": "W1",
+      "type": "grant_runway",
+      "plain_english": "At the current pace, the match grant runs out before the season ends in December.",
+      "grant_budget": 9000,
+      "used_through_oct_17": 8543,
+      "remaining_market_days": 9
+    }
+  ],
+  "expected_oct_20_batch": [
+    {
+      "vendor_id": "V01",
+      "snap_tokens": 105,
+      "match_tokens": 168,
+      "gross": 273,
+      "held": 168,
+      "pay_now": 105,
+      "hold_reasons": [
+        "P7"
+      ]
+    },
+    {
+      "vendor_id": "V02",
+      "snap_tokens": 79,
+      "match_tokens": 112,
+      "gross": 191,
+      "held": 0,
+      "pay_now": 191,
+      "hold_reasons": []
+    },
+    {
+      "vendor_id": "V03",
+      "snap_tokens": 47,
+      "match_tokens": 0,
+      "gross": 47,
+      "held": 0,
+      "pay_now": 47,
+      "hold_reasons": []
+    },
+    {
+      "vendor_id": "V04",
+      "snap_tokens": 63,
+      "match_tokens": 0,
+      "gross": 63,
+      "held": 0,
+      "pay_now": 63,
+      "hold_reasons": []
+    },
+    {
+      "vendor_id": "V05",
+      "snap_tokens": 27,
+      "match_tokens": 0,
+      "gross": 27,
+      "held": 27,
+      "pay_now": 0,
+      "hold_reasons": [
+        "P9"
+      ]
+    },
+    {
+      "vendor_id": "V06",
+      "snap_tokens": 64,
+      "match_tokens": 0,
+      "gross": 64,
+      "held": 0,
+      "pay_now": 64,
+      "hold_reasons": []
+    },
+    {
+      "vendor_id": "V07",
+      "snap_tokens": 12,
+      "match_tokens": 0,
+      "gross": 12,
+      "held": 12,
+      "pay_now": 0,
+      "hold_reasons": [
+        "P5"
+      ]
+    }
+  ],
+  "honest_match_tokens_left_after_oct_17": 18,
+  "day_plan": {
+    "2026-08-29": "normal",
+    "2026-09-05": "heat wave, market closed at 11am",
+    "2026-09-12": "rain, few shoppers",
+    "2026-09-19": "normal",
+    "2026-09-26": "normal",
+    "2026-10-03": "normal",
+    "2026-10-10": "normal",
+    "2026-10-17": "normal"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "as_of": "2026-08-28",
+  "note": "The market's books the morning before the first Saturday in this dataset. Debits equal credits.",
+  "tokens_held_by_shoppers": {
+    "snap": 64,
+    "match": 38
+  },
+  "accounts": [
+    {
+      "code": "1000",
+      "name": "Cash - Operating Bank",
+      "type": "asset",
+      "balance": 8000
+    },
+    {
+      "code": "1100",
+      "name": "EBT Settlement Receivable",
+      "type": "asset",
+      "balance": 0
+    },
+    {
+      "code": "1200",
+      "name": "Grant Receivable - Billed",
+      "type": "asset",
+      "balance": 612
+    },
+    {
+      "code": "1210",
+      "name": "Grant Receivable - Unbilled Match",
+      "type": "asset",
+      "balance": 38
+    },
+    {
+      "code": "2000",
+      "name": "SNAP Tokens Outstanding",
+      "type": "liability",
+      "balance": 64
+    },
+    {
+      "code": "2010",
+      "name": "Match Tokens Outstanding",
+      "type": "liability",
+      "balance": 38
+    },
+    {
+      "code": "2100",
+      "name": "Vendor Payable",
+      "type": "liability",
+      "balance": 0
+    },
+    {
+      "code": "3000",
+      "name": "Net Assets",
+      "type": "equity",
+      "balance": 8548
+    },
+    {
+      "code": "5000",
+      "name": "Unreimbursed Match Expense",
+      "type": "expense",
+      "balance": 0
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+vendor_id,name,sells,snap_eligible,match_eligible,bank_last4,phone_on_file
+V01,Green Acres Farm,vegetables,True,True,4417,(510) 555-0141
+V02,Sunny Slope Orchards,fruit,True,True,9023,(510) 555-0187
+V03,Two Hens Eggs,eggs,True,False,3308,(510) 555-0112
+V04,Bayside Bakery,bread,True,False,7751,(510) 555-0164
+V05,Honeycomb Apiary,honey,True,False,2290,(510) 555-0199
+V06,Little Creek Dairy,dairy,True,False,6134,(510) 555-0125
+V07,Ember Wood-Fired Pizza,hot prepared food,False,False,5582,(510) 555-0173
+V08,Wildflower Candles,candles and crafts,False,False,8846,(510) 555-0158

@@ -1,0 +1,2 @@
+received_at,vendor_id,new_bank_last4,channel,from_address,message
+2026-10-19 07:52,V05,0067,email,honeycomb.apiary.payments@mailbox-secure.example,"Hi, we switched banks. Please send this week's token payment to the new account. Thanks!"
