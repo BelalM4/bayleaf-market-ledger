@@ -5,8 +5,9 @@ An autonomous bookkeeper for a farmers' market's food-stamp token program.
 **Seats it fills:** token program bookkeeper and vendor payout clerk. It prepares
 everything; only the market manager can approve money going out.
 
-> Status: step 1 of the build. The fake company and its answer key are done.
-> The agent, the ledger and the web page come next.
+> Status: the fake company, its answer key and the agent are done. The agent
+> catches 9/9 planted mistakes with 0 false alarms. The double-entry ledger, the
+> approval screen and the web page come next.
 
 ## The company (fictional)
 
@@ -75,14 +76,50 @@ pay now and what to hold.
 there, every trap is harmless, nothing *else* is wrong, the bank's running balance
 adds up, and the opening books balance.
 
+## The agent (`agent.py`)
+
+It reads the records (never the answer key: `Sources` refuses to open it), runs
+eight checks, and writes `output/agent_run.json`. Every finding says what's wrong,
+the evidence (file and line), the rule applied, and one of three actions:
+
+| Action | Meaning | Example |
+|---|---|---|
+| `auto_resolve` | Safe to fix alone, with the reason written down | Duplicate swipe: the bank shows it happened once |
+| `escalate_open_item` | Someone has to chase a bank or processor | $25 deposit never arrived |
+| `hold_for_approval` | A money decision only the market manager can make | Holding Green Acres' match tokens |
+
+It also writes down what it **checked and found fine** (the traps), so a reviewer
+can see it noticed and why it didn't worry. Then it prepares Tuesday's payment
+batch with holds, marked `awaiting_approval`. The agent has no way to send money.
+
+| Check | What it compares |
+|---|---|
+| Terminal duplicates | Swipe IDs in the terminal export, confirmed against the bank deposit |
+| Settlements | Each day's swipes vs. the EBT deposit, including late deposits |
+| Match cap | Match per shopper per day vs. the $10 cap |
+| Redemptions | Token turn-ins vs. what each vendor may accept, and attendance |
+| Token float | Tokens that exist (held + handed out) vs. tokens turned in, season to date |
+| Vendor payments | Bank payments vs. the payout register vs. the token counts |
+| Bank changes | Requests to change where money goes. Never applied by email |
+| Grant | Claims vs. tokens turned in, the bank receipt, and whether the money lasts the season |
+
 ## Run it
 
 Only needs Python 3.10 or newer. Nothing to install.
 
 ```bash
 python3 generate_data.py      # rebuilds data/ (same files every time)
-python3 -m unittest -v        # 13 tests
+python3 agent.py              # the agent's findings and Tuesday's payment batch
+python3 score.py              # grades the agent against the answer key
+python3 -m unittest -v        # 27 tests
 ```
+
+Current score: **9/9 caught, 9/9 right action, 0 false alarms, payment batch exact.**
+
+The tests also change the data the way a judge might (the late deposit never comes,
+a second suspicious email, a candle stall turning in match tokens, and more) and
+check the agent reacts correctly. That shows it reasons from the records rather
+than memorizing the answers.
 
 ## What's real vs. simulated
 

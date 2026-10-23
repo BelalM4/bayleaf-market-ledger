@@ -124,7 +124,7 @@ def build(rng):
 
     # P4: same shopper swipes twice and gets match both times: 8 + 7 = 15, over the $10 cap by $5
     d = date(2026, 9, 26)
-    card_p4 = next(s for s in shoppers if s not in used_today(d))
+    card_p4 = next(s for s in shoppers if s not in used_today(d) and s != card_t3)
     terminal.append({"market_date": d, "time": "09:40", "shopper_card": card_p4, "snap_amount": 8, "match_tokens_given": 8})
     terminal.append({"market_date": d, "time": "12:05", "shopper_card": card_p4, "snap_amount": 7, "match_tokens_given": 7})
 
@@ -244,13 +244,13 @@ def build(rng):
     v01_match = pending["V01"][1]
     planted += [
         dict(id="P1", type="duplicate_terminal_row", expected_action="auto_resolve",
-             where={"file": "booth_terminal_log.csv", "txn_id": dup_row["txn_id"]}, amount=dup_row["snap_amount"],
+             where={"file": "booth_terminal_log.csv", "txn_id": dup_row["txn_id"], "market_date": "2026-09-12"}, amount=dup_row["snap_amount"],
              plain_english="The card terminal export lists the same swipe twice. It happened once: the bank deposit agrees with one copy."),
         dict(id="P2", type="late_settlement", expected_action="auto_resolve",
-             where={"file": "bank_statement.csv", "txn_id": late["txn_id"], "reference": "EBT-0919-L1"}, amount=late["snap_amount"],
+             where={"file": "bank_statement.csv", "txn_id": late["txn_id"], "reference": "EBT-0919-L1", "market_date": "2026-09-19"}, amount=late["snap_amount"],
              plain_english="A Sep 19 swipe was missing from the Sep 21 deposit but arrived on its own on Sep 28. Timing difference, nothing lost."),
         dict(id="P3", type="missing_settlement", expected_action="escalate_open_item",
-             where={"file": "booth_terminal_log.csv", "txn_id": missing["txn_id"]}, amount=missing["snap_amount"],
+             where={"file": "booth_terminal_log.csv", "txn_id": missing["txn_id"], "market_date": "2026-10-10"}, amount=missing["snap_amount"],
              plain_english="An Oct 10 swipe never reached the bank. The market handed out tokens but was never paid. Someone must call the EBT processor."),
         dict(id="P4", type="match_over_cap", expected_action="hold_for_approval",
              where={"file": "booth_terminal_log.csv", "shopper_card": card_p4, "market_date": "2026-09-26"}, amount=5,
@@ -267,7 +267,7 @@ def build(rng):
              plain_english=f"On Oct 17 vendors turned in {40 - honest_match_left} more match tokens than shoppers could possibly have held. "
                            "Green Acres' count is far above normal. Hold its match payout until the tokens are recounted."),
         dict(id="P8", type="duplicate_ach_payment", expected_action="escalate_open_item",
-             where={"file": "bank_statement.csv", "reference": dup["ach_ref"]}, amount=dup["amount"],
+             where={"file": "bank_statement.csv", "reference": dup["ach_ref"], "vendor_id": "V02", "market_date": "2026-09-26"}, amount=dup["amount"],
              plain_english="The bank sent Sunny Slope's Sep 29 payment twice. Ask the bank to reverse one, or deduct it from a future payout."),
         dict(id="P9", type="bank_detail_change", expected_action="hold_for_approval",
              where={"file": "bank_change_requests.csv", "vendor_id": "V05"}, amount=sum(pending["V05"]),
