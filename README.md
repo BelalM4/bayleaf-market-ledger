@@ -8,6 +8,8 @@ everything; only the market manager can approve money going out.
 > Status: working end to end: data, agent, double-entry books, approval gate and
 > web app with "ask why" (67 tests). The agent catches 9/9 planted mistakes with 0 false alarms.
 
+Demo script and judge Q&A: [DEMO.md](DEMO.md). Devpost draft: [DEVPOST.md](DEVPOST.md).
+
 ## Start the app
 
 ```bash
