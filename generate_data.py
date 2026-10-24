@@ -26,6 +26,8 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+from auth import pin_hash
+
 SEED = 1023
 MATCH_CAP = 10                      # max free match dollars per shopper per market day
 MARKET_DAYS = [date(2026, 8, 29) + timedelta(weeks=i) for i in range(8)]
@@ -73,6 +75,11 @@ DAY_PLAN = {
 
 SWIPE_AMOUNTS = [5, 8, 10, 12, 15, 20, 25, 30]
 SWIPE_WEIGHTS = [8, 10, 18, 12, 18, 18, 8, 8]
+
+
+# Demo sign-in PINs (test credentials for this fake market, listed in the README).
+# Only a salted hash is written to market_config.json.
+DEMO_PINS = {"jordan.lee": "2468", "priya.shah": "1357"}
 
 
 def money(dollars):
@@ -384,9 +391,9 @@ def main(out_dir):
             "volunteer_treasurer": "Sam Ortiz (left in October; made payouts through Oct 13)",
         },
         "users": {
-            "jordan.lee": {"name": "Jordan Lee", "role": "market_manager"},
-            "priya.shah": {"name": "Priya Shah", "role": "volunteer"},
-            "agent": {"name": "Bayleaf bookkeeping agent", "role": "bookkeeping_agent"},
+            "jordan.lee": {"name": "Jordan Lee", "role": "market_manager", "pin_hash": pin_hash("jordan.lee", DEMO_PINS["jordan.lee"])},
+            "priya.shah": {"name": "Priya Shah", "role": "volunteer", "pin_hash": pin_hash("priya.shah", DEMO_PINS["priya.shah"])},
+            "agent": {"name": "Bayleaf bookkeeping agent", "role": "bookkeeping_agent", "pin_hash": None},
         },
         "permissions": {
             "market_manager": ["decide_approvals", "view"],

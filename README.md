@@ -6,7 +6,7 @@ An autonomous bookkeeper for a farmers' market's food-stamp token program.
 everything; only the market manager can approve money going out.
 
 > Status: working end to end: data, agent, double-entry books, approval gate and
-> web app with "ask why" (67 tests). The agent catches 9/9 planted mistakes with 0 false alarms.
+> web app with "ask why" (84 tests). The agent catches 9/9 planted mistakes with 0 false alarms.
 
 Demo script and judge Q&A: [DEMO.md](DEMO.md). Devpost draft: [DEVPOST.md](DEVPOST.md).
 
@@ -20,7 +20,7 @@ Then open **http://localhost:8000**. Nothing to install (Python 3.10+).
 
 | Tab | What it shows |
 |---|---|
-| Needs a decision | The agent's six approval requests. Switch "Acting as" to try approving as the agent or a volunteer, and watch the gate refuse. |
+| Needs a decision | The agent's six approval requests. Sign in to decide, press "Let the agent try" to watch the gate refuse the agent, or sign in as the volunteer to see a refusal too. |
 | What the agent found | All findings, each with the explanation, the rule and the evidence (file and line) |
 | Checked & fine | Things that look wrong but aren't, and why the agent didn't flag them |
 | Tuesday's payments | The payment batch: owed, held, paid, refused, and the account each payment goes to |
@@ -204,6 +204,32 @@ export ANTHROPIC_API_KEY=your-key-here
 python3 server.py
 ```
 
+## Security and integrity
+
+**Demo sign-ins** (test credentials for this fake market only):
+
+| User | Role | PIN |
+|---|---|---|
+| `jordan.lee` | Market manager: decides approvals | `2468` |
+| `priya.shah` | Volunteer: view only | `1357` |
+| `agent` | Bookkeeping agent: can't sign in | none |
+
+Only salted PBKDF2 hashes of the PINs are stored. An outside review found six weaknesses, and each is now fixed and covered by tests in `tests/test_review_fixes.py`:
+
+| Weakness found | Fix |
+|---|---|
+| Overlapping holds let Green Acres be paid $441 against $273 owed | Each held payment lists everything blocking it. Money moves from on-hold to payable only when no blocker remains, so the same dollars can't be released twice. A tie-out checks that no vendor is ever paid more than it's owed. |
+| Anyone could send `actor: jordan.lee` and approve | Identity comes only from a server session: an HttpOnly cookie set at sign-in with a PIN. The request body can't claim to be someone. Cross-site posts are refused. |
+| Editing the records and restarting mixed new findings with old approvals | Each run is frozen with fingerprints of every file it read. If any file changes, the run and its approvals are archived as superseded and a fresh run starts. |
+| Approvals went through even when the books didn't tie out; a $10 change to a payment amount wasn't flagged | Payments must match on amount as well as reference, and the bank statement's running balance is checked. No decision is accepted while any tie-out fails, and a decision that would break one is rolled back before saving. |
+| Confirming an unpaid vendor's attendance left its money stuck on hold | That choice now clears the attendance blocker and releases the payment if nothing else blocks it. |
+| Deleting the saved audit trail was accepted on restart | Every event goes to an append-only, hash-chained `state/audit.jsonl`, and saves are atomic. A missing, shortened or edited trail stops the app until someone runs `python3 gate.py reset`, which archives everything to `state/history/` instead of deleting it. |
+
+**Known limits** (it's a hackathon prototype):
+- If someone deletes the state, the audit trail *and* the history together, nothing on this machine can prove it. The Audit tab shows the chain's head hash so it can be written down or sent elsewhere.
+- Sessions live in the server's memory, so restarting the server signs everyone out.
+- Run one copy at a time: don't run `gate.py` commands while `server.py` is running.
+
 ## Run it
 
 Only needs Python 3.10 or newer. Nothing to install.
@@ -214,7 +240,7 @@ python3 agent.py              # the agent's findings and Tuesday's payment batch
 python3 score.py              # grades the agent against the answer key
 python3 gate.py status        # the approval queue and the books
 python3 server.py             # the web app at http://localhost:8000
-python3 -m unittest -v        # 67 tests
+python3 -m unittest -v        # 84 tests
 ```
 
 Current score: **9/9 caught, 9/9 right action, 0 false alarms, payment batch exact.**

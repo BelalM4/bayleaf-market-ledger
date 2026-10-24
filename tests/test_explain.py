@@ -94,7 +94,7 @@ class TestAskWhy(unittest.TestCase):
 
     def test_questions_are_written_to_the_audit_trail(self):
         app = App(Path(self.tmp.name) / "gate.json", DATA)
-        status, r = app.handle("POST", "/api/ask", {"finding": self.float_id, "question": "How sure are you?",
+        status, r, _ = app.handle("POST", "/api/ask", {"finding": self.float_id, "question": "How sure are you?",
                                                      "actor": "jordan.lee"}, client=FakeClient())
         self.assertEqual((status, r["result"]["source"]), (200, "claude"))
         self.assertEqual(app.gate.audit[-1]["step"], "asked_why")

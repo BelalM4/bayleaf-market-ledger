@@ -7,8 +7,8 @@ click is in *italics*. Times are targets, not rules.
 ## Before judges arrive (2 minutes)
 
 1. `python3 server.py`, then open http://localhost:8000 and make the window large.
-2. Click **Reset demo** so every decision is pending again.
-3. Set "Acting as" to **Jordan Lee (market manager)**, on the **Needs a decision** tab.
+2. Sign in as **Jordan Lee (market manager)**, PIN **2468** (a demo PIN for the fake market).
+3. Click **Reset demo** so every decision is pending again (the old run is archived, not deleted), and stay on the **Needs a decision** tab.
 4. Laptop charging; notifications off (Focus mode).
 5. No wifi needed: "Ask why" falls back to the agent's recorded reasoning on its own.
 
@@ -47,7 +47,7 @@ recorded reasoning". Say whichever one is true.)
 
 ## 1:05 – 1:30 · It knows when to ask, and it can't approve itself
 
-*Switch "Acting as" to **Bayleaf bookkeeping agent**. Click **Decide** on the same purple card.*
+*Click **Let the agent try to approve it** on the same purple card.*
 
 > "The agent prepares everything, but it can't move money. Watch: it tries to approve its own request…"
 
@@ -55,7 +55,7 @@ recorded reasoning". Say whichever one is true.)
 
 > "…and the gate refuses. Whoever requests a payment can't approve it."
 
-*Switch back to **Jordan Lee**. Choose "Pay only the tokens that can exist", then click **Decide**.*
+*Choose "Pay only the tokens that can exist", then click **Decide as Jordan Lee**.*
 
 > "The market manager decides. That posted balanced journal entries, and the books still agree:"
 
@@ -100,7 +100,7 @@ program works is real. Many states run SNAP token and match programs like this: 
 SNAP, match capped per shopper, a grant paying for redeemed match."
 
 **"How do you know it works?"**
-"67 automated tests. They check that the answer key matches the raw files, grade the agent,
+"84 automated tests. They check that the answer key matches the raw files, grade the agent,
 test every ledger rule and every approval rule, and change the data to make sure the agent is
 reasoning rather than memorizing."
 
@@ -122,6 +122,12 @@ about six Saturdays before the season ends."
 "Telling real problems from traps. My own tests caught a bug where I'd planted tokens without
 taking them out of what shoppers held. And when I tried the 'inflate a second vendor' scenario,
 the agent at first released the wrong vendor. Now it holds every unusual count."
+
+**"Couldn't someone just pretend to be the manager?"**
+"No. Approvals come only from a signed-in session on the server, not from anything the page sends. Wrong PINs are refused and logged. The agent can't sign in at all."
+
+**"What if someone edits the records after you've approved things?"**
+"Each run is tied to fingerprints of the files it read. If any file changes, that run and its approvals are archived as superseded and the agent starts over. Old approvals never carry over to new findings. And the audit trail is hash-chained: delete or edit it, and the app refuses to start."
 
 **"Why can't the manager just override?"**
 "They can. Overriding takes a written note, and the books record the 22 impossible tokens as a

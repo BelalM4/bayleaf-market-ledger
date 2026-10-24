@@ -379,6 +379,18 @@ class Agent:
         reg_by_ref = {p["ach_ref"]: p for p in self.register}
         for ref, lines in bank_by_ref.items():
             p = reg_by_ref.get(ref)
+            if p is not None and round(-float(lines[0]["amount"]) * 100) != round(float(p["amount"]) * 100):
+                sent, meant = -float(lines[0]["amount"]), float(p["amount"])
+                self.add(
+                    "payment_amount_mismatch", "escalate_open_item",
+                    f"The bank sent {self.name(p['vendor_id'])} ${sent:,.2f}, not ${meant:,.2f}",
+                    f"Payment {ref} for {nice(p['market_date'])} tokens is in the payout register as ${meant:,.2f}, but the bank "
+                    f"statement shows ${sent:,.2f}, a difference of ${abs(sent - meant):,.2f}. Matching the reference alone "
+                    "would have hidden this. The difference is parked in suspense until someone checks with the bank.",
+                    "A payment matches only if the reference and the amount both agree.",
+                    abs(sent - meant), [ev("bank_statement.csv", lines[0], "date", "amount", "reference"),
+                                        ev("payout_register.csv", p, "payout_date", "amount", "ach_ref")],
+                    market_date=p["market_date"], vendor_id=p["vendor_id"], difference=round(sent - meant, 2))
             if p is None:
                 self.add("unrecorded_payment", "escalate_open_item", f"Bank payment {ref} is not in the payout register",
                          "Money left the bank with no record of why.", "Every payment needs a register entry.",
@@ -417,6 +429,26 @@ class Agent:
         if not wrong:
             self.clear("payouts", "Every past payment equals $1 per token turned in",
                        f"Checked {len(self.register)} payout register entries against the token count sheets.")
+
+    def check_bank_balance(self):
+        """The bank statement's running balance must equal the opening cash plus every line above it."""
+        balance = next(a["balance"] for a in self.opening["accounts"] if a["code"] == "1000")
+        for b in self.bank:
+            balance = round(balance + float(b["amount"]), 2)
+            stated = round(float(b["balance"]), 2)
+            if balance != stated:
+                self.add(
+                    "bank_balance_mismatch", "escalate_open_item",
+                    f"The bank statement doesn't add up at line {b['_line']}",
+                    f"Adding up every line gives ${balance:,.2f} after {b['reference']} on {nice(b['date'])}, but the statement "
+                    f"says ${stated:,.2f}. Either a line was changed or the export is broken. Get a fresh statement from the "
+                    "bank. Until the cash ties out, no money decisions can be approved.",
+                    "Each running balance equals the previous balance plus this line's amount.",
+                    abs(balance - stated), [ev("bank_statement.csv", b, "date", "amount", "balance", "reference")],
+                    market_date=b["date"])
+                return
+        self.clear("bank_balance", "The bank statement's running balance adds up",
+                   f"Checked all {len(self.bank)} lines against the opening cash.")
 
     def check_bank_changes(self):
         """Bank details never change because of an email. Hold payment until a call to the number on file confirms it."""
@@ -521,7 +553,7 @@ class Agent:
         self.note("start", f"Read {len(self.src.read_log)} source files")
         for check in (self.check_terminal_duplicates, self.check_settlements, self.check_match_cap,
                       self.check_redemptions, self.check_token_float, self.check_vendor_payments,
-                      self.check_bank_changes, self.check_grant):
+                      self.check_bank_balance, self.check_bank_changes, self.check_grant):
             check()
             self.note("check", f"{check.__name__}: done")
         self.prepare_payout_batch()

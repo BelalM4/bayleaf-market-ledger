@@ -27,15 +27,18 @@
   "users": {
     "jordan.lee": {
       "name": "Jordan Lee",
-      "role": "market_manager"
+      "role": "market_manager",
+      "pin_hash": "b963d848a835c38c0d740df5fb8c1dca92ee66457f9f49b13075ae0c3152ba27"
     },
     "priya.shah": {
       "name": "Priya Shah",
-      "role": "volunteer"
+      "role": "volunteer",
+      "pin_hash": "7610dda2dd18bee769bd75e3e68edd60c71b584bde3b6ee97dc2a73f322e509d"
     },
     "agent": {
       "name": "Bayleaf bookkeeping agent",
-      "role": "bookkeeping_agent"
+      "role": "bookkeeping_agent",
+      "pin_hash": null
     }
   },
   "permissions": {

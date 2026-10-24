@@ -72,7 +72,7 @@ def build(a):
 
     seen_refs = set()
     for b in a.bank:
-        amt, ref = round(float(b["amount"])), b["reference"]
+        amt, ref = float(b["amount"]), b["reference"]
         src = {"file": "bank_statement.csv", "line": b["_line"], "reference": ref}
         if ref.startswith("EBT-"):
             lines = [dr("1000", amt), cr("1100", amt)]
@@ -80,11 +80,16 @@ def build(a):
             lines = [dr("1000", amt), cr("1200", amt)]
         elif ref.startswith("ACH") and ref in register:
             p = register[ref]
+            sent, meant = -float(b["amount"]), float(p["amount"])
             if ref in seen_refs:
                 src["finding"] = dup_payment.get(p["market_date"] + p["vendor_id"])
-                lines = [dr("1400", -amt, p["vendor_id"]), cr("1000", -amt)]
+                lines = [dr("1400", sent, p["vendor_id"]), cr("1000", sent)]
+            elif sent != meant:            # the bank sent a different amount: the difference waits in suspense
+                diff = sent - meant
+                lines = [dr("2100", meant, p["vendor_id"]), cr("1000", sent),
+                         dr("1900", diff) if diff > 0 else cr("1900", -diff)]
             else:
-                lines = [dr("2100", -amt, p["vendor_id"]), cr("1000", -amt)]
+                lines = [dr("2100", meant, p["vendor_id"]), cr("1000", sent)]
             seen_refs.add(ref)
         else:                         # money we can't explain waits in suspense, never in a real account
             lines = [dr("1000", amt), cr("1900", amt)] if amt > 0 else [dr("1900", -amt), cr("1000", -amt)]
@@ -141,18 +146,27 @@ def tie_outs(a, led, batch=None):
     fake_snap = sum(f["shortfall"] for f in a.findings if f["type"] == "snap_float_negative")
     fake = sum(f["shortfall"] for f in a.findings if f["type"] == "match_float_negative")
     recovered = approved("recover_tokens", "2000", "credit")
+    recovered_match = approved("recover_tokens", "2010", "credit")
     check("SNAP tokens outstanding = tokens shoppers still hold", led.balance("2000"),
           last["snap"]["held_after"] + fake_snap + recovered, "token roll-forward (terminal vs turn-ins)",
           "; ".join(x for x in (f"{recovered:.0f} tokens put back after a turn-in was reversed" if recovered else "",
                                 f"{fake_snap} tokens that can't exist went to suspense" if fake_snap else "") if x))
-    check("Match tokens outstanding = tokens shoppers still hold", led.balance("2010"), last["match"]["held_after"] + fake,
+    check("Match tokens outstanding = tokens shoppers still hold", led.balance("2010"),
+          last["match"]["held_after"] + fake + recovered_match,
           "token roll-forward, not counting tokens that can't exist",
           f"{fake} tokens that can't exist went to suspense" if fake else "")
     resolved = approved("resolve_suspense", "1900", "credit")
-    check("Suspense = tokens still under review", led.balance("1900"), fake + fake_snap - resolved, "token roll-forward",
-          f"{resolved:.0f} resolved by the manager" if resolved else "")
+    unexplained = sum(f["difference"] for f in a.findings if f["type"] == "payment_amount_mismatch") \
+        + sum(f["amount"] for f in a.findings if f["type"] == "unrecorded_payment")
+    check("Suspense = tokens under review + payment differences being checked", led.balance("1900"),
+          fake + fake_snap - resolved + unexplained, "token roll-forward and payment findings",
+          "; ".join(x for x in (f"{resolved:.0f} resolved by the manager" if resolved else "",
+                                f"${unexplained:,.2f} of payment differences" if unexplained else "") if x))
 
     lines = batch["lines"]
+    overpaid = [l["vendor"] for l in lines if l.get("paid", 0) > l["gross"] - l.get("forfeited", 0)]
+    check("No vendor is paid more than it is owed", len(overpaid), 0, "payout batch",
+          ", ".join(overpaid))
     check("Vendor payable = batch amounts approved to pay but not yet sent", led.balance("2100"),
           sum(l["pay_now"] - l.get("paid", 0) for l in lines), "payout batch")
     check("Vendor payable on hold = held lines in the batch", led.balance("2110"), sum(l["held"] for l in lines), "payout batch")
