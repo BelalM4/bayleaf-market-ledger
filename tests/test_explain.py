@@ -97,8 +97,9 @@ class TestAskWhy(unittest.TestCase):
         status, r, _ = app.handle("POST", "/api/ask", {"finding": self.float_id, "question": "How sure are you?",
                                                      "actor": "jordan.lee"}, client=FakeClient())
         self.assertEqual((status, r["result"]["source"]), (200, "claude"))
-        self.assertEqual(app.gate.audit[-1]["step"], "asked_why")
-        self.assertIn("How sure are you?", app.gate.audit[-1]["detail"])
+        last = [e for e in app.gate.audit if e["step"] != "checkpoint"][-1]
+        self.assertEqual(last["step"], "asked_why")
+        self.assertIn("How sure are you?", last["detail"])
 
 
 if __name__ == "__main__":

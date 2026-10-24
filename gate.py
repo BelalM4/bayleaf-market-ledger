@@ -17,9 +17,14 @@ The agent prepares; the market manager approves. The gate enforces:
   - Frozen runs: each agent run is tied to fingerprints of the files it read. If those
     files change, the old run and its approvals are archived and marked superseded, and
     a fresh run starts. Old approvals never apply to new findings.
+  - Money sent stays sent: every payment is recorded, and a run that supersedes another
+    starts from what was already paid, so nothing is paid twice.
+  - Current screens only: a decision must name the run it was made for. A decision from
+    an out-of-date screen is refused.
   - Tamper-evident audit trail: every event is appended to state/audit.jsonl, each line
-    chained to the one before by a hash. Saves are atomic. A missing, shortened or edited
-    trail stops the gate from starting instead of silently starting over.
+    chained to the one before by a hash, and every save records a fingerprint of the saved
+    state in that chain. Saves are atomic. A missing, shortened or edited trail, or an
+    edited state file, stops the gate from starting instead of silently starting over.
 
     python3 gate.py status
     python3 gate.py decide REQ-01 approve --as jordan.lee --pin 2468
@@ -164,6 +169,10 @@ class Gate:
 
         self.log = AuditLog.load(self.audit_path)
         s = json.loads(self.path.read_text())
+        checkpoints = [e for e in self.log.entries if e["step"] == "checkpoint"]
+        if not checkpoints or checkpoints[-1]["detail"] != f"state sha256 {self._state_hash(s)}":
+            raise IntegrityError("The saved state was changed outside the app: its fingerprint doesn't match the last "
+                                 "checkpoint in the audit trail. Run `python3 gate.py reset` to archive and start fresh.")
         head = s["audit_head"]
         if head["count"] > len(self.log.entries) or self.log.entries[head["count"] - 1]["hash"] != head["hash"]:
             raise IntegrityError("The audit trail doesn't match the saved state (events were removed). "
@@ -179,11 +188,11 @@ class Gate:
                             f"were superseded and archived to {archived}."
                             + (f" ${paid:,} of payments were already sent under it; check them against the next bank "
                                "statement." if paid else ""))
-            self._start(fresh, fingerprint, f"sources changed; replaces {s['run_id']}")
+            self._start(fresh, fingerprint, f"sources changed; replaces {s['run_id']}", carry=s)
             return
         self.run_id, self.run, self.fingerprint = s["run_id"], s["run"], s["fingerprint"]
         self.ledger = Ledger.from_dict(s["ledger"])
-        self.batch, self.requests, self.vendor_accounts = s["batch"], s["requests"], s["vendor_accounts"]
+        self.batch, self.requests, self.sent = s["batch"], s["requests"], s["sent"]
 
     @property
     def audit(self):
@@ -211,12 +220,12 @@ class Gate:
         last = json.loads(lines[-1])["hash"] if lines else "none"
         self._previous = f"{dest.relative_to(self.path.parent).as_posix()} ({len(lines)} events, last hash {last[:12]})"
 
-    def _start(self, run, fingerprint, why):
+    def _start(self, run, fingerprint, why, carry=None):
         self.run, self.fingerprint = run, fingerprint
         digest = hashlib.sha256(json.dumps(fingerprint).encode()).hexdigest()[:6]
         self.run_id = f"RUN-{datetime.now():%m%d-%H%M%S}-{digest}"
         self.ledger = books.build(self.a)
-        self.vendor_accounts = {}
+        self.sent, self.requests = [], []
         self.batch = copy.deepcopy(run["payout_batch"])
         findings = {f["id"]: f for f in run["findings"]}
         for l in self.batch["lines"]:
@@ -233,9 +242,10 @@ class Gate:
                         + ", ".join(f"{f} {h}" for f, h in fingerprint))
         for step in run["audit_log"]:
             self.log.append("agent", step["step"], step["detail"])
+        if carry:
+            self._carry_payments(carry)
         self.log.append("agent", "books", f"Posted {len(self.ledger.entries)} journal entries; closed periods through "
                                           f"{self.ledger.locked_through}")
-        self.requests = []
         self._request("payout_batch", None, f"Approve payment batch {self.batch['batch_id']}", self.batch["total_pay_now"])
         for f in run["findings"]:
             if f["action"] == "hold_for_approval":
@@ -250,14 +260,52 @@ class Gate:
         self.requests.append(r)
         self.log.append("agent", "request_approval", f"{r['id']}: {title}")
 
+    @staticmethod
+    def _state_hash(state):
+        body = {k: v for k, v in state.items() if k != "audit_head"}
+        return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+
     def save(self):
+        """Record the state's fingerprint in the audit chain, then write the state atomically."""
+        state = {"run_id": self.run_id, "fingerprint": self.fingerprint, "run": self.run,
+                 "ledger": self.ledger.to_dict(), "batch": self.batch, "requests": self.requests, "sent": self.sent}
+        state = json.loads(json.dumps(state))          # the same plain-JSON form that load() will read back
+        self.log.append("agent", "checkpoint", f"state sha256 {self._state_hash(state)}")
+        state["audit_head"] = {"count": len(self.log.entries), "hash": self.log.head}
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        write_atomic(self.path, json.dumps({
-            "run_id": self.run_id, "fingerprint": self.fingerprint, "run": self.run,
-            "ledger": self.ledger.to_dict(), "batch": self.batch, "requests": self.requests,
-            "vendor_accounts": self.vendor_accounts,
-            "audit_head": {"count": len(self.log.entries), "hash": self.log.head},
-        }, indent=1))
+        write_atomic(self.path, json.dumps(state, indent=1))
+
+    @property
+    def vendor_accounts(self):
+        """Where each vendor is paid, besides the account on file. Only a phone-verified decision can change it,
+        so it's worked out from the decisions every time and never stored on its own."""
+        out = {}
+        for r in self.requests:
+            if r["kind"] == "bank_detail_change" and r["decision"] and r["decision"]["option"] == "verified_by_phone":
+                req = next(b for b in self.a.bank_changes if b["vendor_id"] == r["vendor_id"])
+                out[r["vendor_id"]] = req["new_bank_last4"]
+        return out
+
+    def _carry_payments(self, old):
+        """A superseding run starts from the money the old run already sent."""
+        carried = [p for p in old.get("sent", []) if p["batch_id"] == self.batch["batch_id"]]
+        for p in carried:
+            l = next((l for l in self.batch["lines"] if l["vendor_id"] == p["vendor_id"]), None)
+            if l is None:
+                continue
+            self.ledger.post(p["date"], f"Payment already sent to {l['vendor']} under {old['run_id']} "
+                                        f"(account ending {p['account']}); carried over, not paid again",
+                             [dr("2100", p["amount"], p["vendor_id"]), cr("1000", p["amount"])],
+                             {"kind": "payment", "carried_from": old["run_id"], "request": p["request"]},
+                             posted_by="agent", approved_by=p["approved_by"])
+            l["paid"] += p["amount"]
+            l["pay_to_account"] = p["account"]
+            self.sent.append({**p, "carried_from": old["run_id"]})
+        if carried:
+            total = sum(p["amount"] for p in carried)
+            self.log.append("agent", "carried_payments",
+                            f"{len(carried)} payments (${total:,}) already sent under {old['run_id']} were carried into "
+                            f"{self.run_id}. Approving again only pays what's still due.")
 
     # ---------- signing in ----------
 
@@ -277,8 +325,12 @@ class Gate:
         self.save()
         raise NotAllowed(why)
 
-    def decide(self, req_id, option, actor, note=""):
-        """`actor` must already be signed in by the caller (web session or CLI PIN)."""
+    def decide(self, req_id, option, actor, note="", run_id=None):
+        """`actor` must already be signed in by the caller (web session or CLI PIN).
+        `run_id` is the run the person was looking at; the web app always sends it."""
+        if run_id is not None and run_id != self.run_id:
+            self._refuse(actor, req_id, option, f"This screen is out of date: it shows {run_id}, but the current run is "
+                         f"{self.run_id} (the records changed). Reload and decide again.")
         r = self.request(req_id)
         user = self.config["users"].get(actor)
         if user is None:
@@ -299,18 +351,28 @@ class Gate:
             self._refuse(actor, req_id, option, "The books don't tie out right now (" + "; ".join(broken) + "), so no "
                          "decisions can be approved until that's fixed. See the open findings.")
 
-        before = (len(self.ledger.entries), copy.deepcopy(self.batch), dict(self.vendor_accounts))
-        entries = self._apply(r, option, actor, note)
+        before = (len(self.ledger.entries), copy.deepcopy(self.batch), copy.deepcopy(self.sent),
+                  copy.deepcopy(self.requests))
+
+        def roll_back():
+            del self.ledger.entries[before[0]:]
+            self.batch, self.sent, self.requests = before[1], before[2], before[3]
+
+        try:
+            # the decision is recorded first, because some effects (like a confirmed bank account) depend on it
+            r["status"] = "decided"
+            r["decision"] = {"option": option, "label": opt["label"], "by": actor, "at": now(), "note": note, "entries": []}
+            entries = self._apply(r, option, actor, note)
+        except Exception as e:
+            roll_back()
+            self._refuse(actor, req_id, option, f"The decision failed while posting ({type(e).__name__}: {e}), so it was "
+                                                f"rolled back completely and nothing was saved.")
         broken = [c["name"] for c in self.tie_outs() if not c["ok"]]
         if broken:
-            del self.ledger.entries[before[0]:]
-            self.batch, self.vendor_accounts = before[1], before[2]
+            roll_back()
             self._refuse(actor, req_id, option, "That decision would have broken the books (" + "; ".join(broken)
                          + "), so it was rolled back and nothing was posted.")
-
-        r["status"] = "decided"
-        r["decision"] = {"option": option, "label": opt["label"], "by": actor, "at": now(), "note": note,
-                         "entries": [e["id"] for e in entries]}
+        r["decision"]["entries"] = [e["id"] for e in entries]
         self.log.append(actor, "decide", f"{req_id} -> {opt['label']}" + (f' ("{note}")' if note else "")
                         + (f"; posted {', '.join(e['id'] for e in entries)}" if entries else ""))
         self.save()
@@ -355,6 +417,10 @@ class Gate:
                  [dr("2100", due, l["vendor_id"]), cr("1000", due)], "payment", self.config["next_payout_date"])
             l["paid"] += due
             l["pay_to_account"] = acct
+            self.sent.append({"batch_id": self.batch["batch_id"], "market_date": self.batch["for_market_date"],
+                              "vendor_id": l["vendor_id"], "amount": due, "account": acct,
+                              "date": self.config["next_payout_date"], "request": r["id"], "approved_by": actor,
+                              "run_id": self.run_id, "at": now()})
 
         def resolve(vid, fid, forfeits=(), why=""):
             """Remove one blocker. `forfeits` = [(amount, credit account)] that won't be paid at all.
@@ -414,9 +480,7 @@ class Gate:
         elif k == "bank_detail_change":
             vid = f["vendor_id"]
             if option == "verified_by_phone":
-                req = next(b for b in self.a.bank_changes if b["vendor_id"] == vid)
-                self.vendor_accounts[vid] = req["new_bank_last4"]
-                line(vid)["pay_to_account"] = req["new_bank_last4"]
+                line(vid)["pay_to_account"] = self.vendor_accounts[vid]
             if pending:
                 resolve(vid, f["id"], why=f"Bank change {option.replace('_', ' ')}")
         self._totals()
@@ -425,7 +489,20 @@ class Gate:
     # ---------- reading ----------
 
     def tie_outs(self):
-        return books.tie_outs(self.a, self.ledger, self.batch)
+        checks = books.tie_outs(self.a, self.ledger, self.batch)
+        on_file = {vid: v["bank_last4"] for vid, v in self.a.vendors.items()}
+        allowed = {**on_file, **self.vendor_accounts}
+        wrong = [l["vendor"] for l in self.batch["lines"] if l["pay_to_account"] != allowed[l["vendor_id"]]]
+        wrong += [f"{p['vendor_id']} payment" for p in self.sent if p["account"] != allowed[p["vendor_id"]]]
+        checks.append({"name": "Every payment goes to the account on file, or one confirmed by phone",
+                       "ledger": len(wrong), "outside": 0, "source": "vendors.csv and approved bank changes",
+                       "ok": not wrong, "explains": ", ".join(wrong)})
+        posted = sum(l["debit"] for e in self.ledger.entries if e["source"].get("kind") == "payment"
+                     for l in e["lines"] if l["account"] == "2100") / 100
+        recorded = sum(p["amount"] for p in self.sent)
+        checks.append({"name": "Payments in the books = payments recorded as sent", "ledger": posted, "outside": recorded,
+                       "source": "payment record", "ok": round(posted, 2) == round(recorded, 2), "explains": ""})
+        return checks
 
     def status(self):
         checks = self.tie_outs()

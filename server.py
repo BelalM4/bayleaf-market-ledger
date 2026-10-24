@@ -8,7 +8,7 @@ The page is static/index.html. It talks to this server through a small JSON API:
     GET  /api/state       everything the page shows
     POST /api/login       {user, pin} -> sets an HttpOnly session cookie
     POST /api/logout
-    POST /api/decide      {request, option, note} as the signed-in user -> 401/403 with the reason if not allowed
+    POST /api/decide      {request, option, note, run_id} as the signed-in user -> 401/403 with the reason if not allowed
     POST /api/agent_attempt {request}  the agent tries to approve its own request (always refused)
     POST /api/reset       archive everything and start a fresh run (signed-in manager only)
     POST /api/scenario    {name, params}  "what if...?" on a scratch copy of the data
@@ -99,8 +99,13 @@ class App:
             if method == "POST" and path == "/api/decide":
                 if not me:
                     return 401, {"ok": False, "error": "Sign in first. Approvals need a signed-in market manager."}, {}
+                if body.get("run_id") != self.gate.run_id:
+                    return 409, {"ok": False, "error": "This screen is out of date (the records changed since it loaded). "
+                                                     "It has been refreshed; check the request and decide again.",
+                                 "state": self.state(me)}, {}
                 try:
-                    r = self.gate.decide(body.get("request", ""), body.get("option", ""), me, body.get("note", ""))
+                    r = self.gate.decide(body.get("request", ""), body.get("option", ""), me, body.get("note", ""),
+                                         run_id=body["run_id"])
                     return 200, {"ok": True, "request": r, "state": self.state(me)}, {}
                 except NotAllowed as e:
                     return 403, {"ok": False, "error": str(e), "state": self.state(me)}, {}

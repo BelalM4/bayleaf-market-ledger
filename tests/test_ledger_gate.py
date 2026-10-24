@@ -119,7 +119,8 @@ class TestApprovalGate(unittest.TestCase):
     def test_refusals_are_written_to_the_audit_trail(self):
         with self.assertRaises(NotAllowed):
             self.gate.decide(self.req("payout_batch"), "approve", "agent")
-        self.assertEqual(self.gate.audit[-1]["step"], "refused")
+        events = [e for e in self.gate.audit if e["step"] != "checkpoint"]
+        self.assertEqual(events[-1]["step"], "refused")
 
     def test_manager_approves_batch_and_payments_post(self):
         self.gate.decide(self.req("payout_batch"), "approve", "jordan.lee")

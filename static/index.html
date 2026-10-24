@@ -286,10 +286,11 @@ const views = {
   },
   audit() {
     return `<p class="muted small">Who did what, when, and why: the agent's steps, every request, every decision, and every refused attempt.</p>
-      <p class="small">Run <span class="chip">${esc(S.run_id)}</span> · ${S.audit.length} events · chain head
+      <p class="small">Run <span class="chip">${esc(S.run_id)}</span> · ${S.audit.length} events
+        (${S.audit.filter((a) => a.step === "checkpoint").length} are state checkpoints, hidden below) · chain head
         <span class="chip" title="Each event's hash covers the one before it. Editing or deleting any event breaks the chain, and the app refuses to start.">${esc(S.audit_head.slice(0, 16))}…</span></p>
       <div class="card"><div class="scroll"><table><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr>
-      ${[...S.audit].reverse().map((a) => `<tr><td class="muted small" style="white-space:nowrap">${esc(a.at.replace("T", " "))}</td>
+      ${[...S.audit].reverse().filter((a) => a.step !== "checkpoint").map((a) => `<tr><td class="muted small" style="white-space:nowrap">${esc(a.at.replace("T", " "))}</td>
         <td>${esc(S.users[a.actor]?.name || a.actor)}</td><td>${["refused", "sign_in_failed", "superseded"].includes(a.step) ? `<span class="pill p-bad">${esc(a.step.replaceAll("_", " "))}</span>` : esc(a.step.replaceAll("_", " "))}</td>
         <td class="small">${esc(a.detail)}</td></tr>`).join("")}</table></div></div>`;
   },
@@ -327,7 +328,7 @@ const views = {
       <div class="grid2"><div class="card"><h3>What's real, what's simulated</h3>
         <p class="small"><b>Simulated:</b> the market, every vendor, shopper, swipe, deposit and dollar (8 Saturdays, Aug 29 to Oct 17, 2026).</p>
         <p class="small"><b>Real:</b> how SNAP token and matching programs work: no hot food on SNAP, match capped per shopper per day, the grant reimbursing redeemed match, vendors paid per token.</p>
-        <p class="small"><b>How we know it works:</b> 84 automated tests (<code>python3 -m unittest</code>). They check the answer key against the raw files, grade the agent, test every ledger rule and approval rule,
+        <p class="small"><b>How we know it works:</b> 90 automated tests (<code>python3 -m unittest</code>). They check the answer key against the raw files, grade the agent, test every ledger rule and approval rule,
         and change the data in "what if" scenarios to show the agent reasons instead of memorizing.</p></div>
       <div class="card"><h3>What the agent read</h3><p class="muted small">Fingerprints of every file behind this run, so any decision can be traced to the exact data.</p>
         <table>${S.sources_read.map((s) => `<tr><td>${esc(s.file)}</td><td class="muted small" style="font-family:ui-monospace,monospace">${s.sha256}</td></tr>`).join("")}</table></div></div>`;
@@ -365,7 +366,7 @@ function requestCard(r) {
 async function decide(id) {
   const option = document.querySelector(`input[name="opt-${id}"]:checked`)?.value;
   const note = $(`#note-${id}`).value;
-  const r = await api("/api/decide", {request: id, option, note});
+  const r = await api("/api/decide", {request: id, option, note, run_id: S.run_id});
   if (r.ok) toast(`${id}: ${r.request.decision.label}. ${r.request.decision.entries.length} journal entries posted; books still agree.`);
   else toast(`Refused: ${r.error}`, "err");
   render();

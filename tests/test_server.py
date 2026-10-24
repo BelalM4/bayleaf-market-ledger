@@ -40,8 +40,8 @@ class TestServer(unittest.TestCase):
         self.assertIn("Segregation of duties", r["error"])
 
     def test_manager_decision_updates_state(self):
-        status, r, _ = self.app.handle("POST", "/api/decide", {"request": "REQ-01", "option": "approve"},
-                                       token=self.login())
+        status, r, _ = self.app.handle("POST", "/api/decide", {"request": "REQ-01", "option": "approve",
+                                                                 "run_id": self.app.gate.run_id}, token=self.login())
         self.assertEqual(status, 200)
         self.assertEqual(r["request"]["decision"]["by"], "jordan.lee")
         self.assertEqual(r["state"]["batch"]["status"], "approved")

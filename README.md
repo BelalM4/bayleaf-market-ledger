@@ -6,7 +6,7 @@ An autonomous bookkeeper for a farmers' market's food-stamp token program.
 everything; only the market manager can approve money going out.
 
 > Status: working end to end: data, agent, double-entry books, approval gate and
-> web app with "ask why" (84 tests). The agent catches 9/9 planted mistakes with 0 false alarms.
+> web app with "ask why" (90 tests). The agent catches 9/9 planted mistakes with 0 false alarms.
 
 Demo script and judge Q&A: [DEMO.md](DEMO.md). Devpost draft: [DEVPOST.md](DEVPOST.md).
 
@@ -214,7 +214,7 @@ python3 server.py
 | `priya.shah` | Volunteer: view only | `1357` |
 | `agent` | Bookkeeping agent: can't sign in | none |
 
-Only salted PBKDF2 hashes of the PINs are stored. An outside review found six weaknesses, and each is now fixed and covered by tests in `tests/test_review_fixes.py`:
+Only salted PBKDF2 hashes of the PINs are stored. An outside review found six weaknesses. Each is now fixed and covered by a test in `tests/test_review_fixes.py`:
 
 | Weakness found | Fix |
 |---|---|
@@ -225,10 +225,20 @@ Only salted PBKDF2 hashes of the PINs are stored. An outside review found six we
 | Confirming an unpaid vendor's attendance left its money stuck on hold | That choice now clears the attendance blocker and releases the payment if nothing else blocks it. |
 | Deleting the saved audit trail was accepted on restart | Every event goes to an append-only, hash-chained `state/audit.jsonl`, and saves are atomic. A missing, shortened or edited trail stops the app until someone runs `python3 gate.py reset`, which archives everything to `state/history/` instead of deleting it. |
 
+A second review round found four more, also fixed and tested:
+
+| Weakness found | Fix |
+|---|---|
+| Approve $470, correct a source, restart, approve again: $940 recorded as paid | Every payment sent is recorded. A run that supersedes another starts from what was already paid, and approving again pays only what's still due. A tie-out checks that payments in the books equal payments recorded as sent. |
+| A decision from an out-of-date screen could approve a newer run's request | Every decision must name the run it was made for. A different run ID is refused (409), and the page refreshes. |
+| Editing the saved account override redirected a $191 payment unnoticed | Every save records a fingerprint of the state file in the audit chain, so an edited file stops the app. Payment destinations aren't stored on their own; they're worked out from phone-verified decisions, and a tie-out checks every payment goes to the account on file or a confirmed one. |
+| A posting failure mid-decision left $296 partly recorded in memory | Any failure during a decision rolls back everything (journal entries, the payment batch, payments sent, the request) and nothing is saved. |
+
 **Known limits** (it's a hackathon prototype):
-- If someone deletes the state, the audit trail *and* the history together, nothing on this machine can prove it. The Audit tab shows the chain's head hash so it can be written down or sent elsewhere.
+- Someone with full access to this computer could rewrite the state *and* recompute the whole audit chain, or delete everything at once. Nothing on one machine can prove otherwise. The Audit tab shows the chain's head hash so it can be written down or sent elsewhere.
 - Sessions live in the server's memory, so restarting the server signs everyone out.
 - Run one copy at a time: don't run `gate.py` commands while `server.py` is running.
+- **Reset demo** starts the payment batch over, including payments already sent. That's for rehearsing only; a real deployment wouldn't offer it.
 
 ## Run it
 
@@ -240,7 +250,7 @@ python3 agent.py              # the agent's findings and Tuesday's payment batch
 python3 score.py              # grades the agent against the answer key
 python3 gate.py status        # the approval queue and the books
 python3 server.py             # the web app at http://localhost:8000
-python3 -m unittest -v        # 84 tests
+python3 -m unittest -v        # 90 tests
 ```
 
 Current score: **9/9 caught, 9/9 right action, 0 false alarms, payment batch exact.**

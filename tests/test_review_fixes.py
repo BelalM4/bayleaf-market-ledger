@@ -90,8 +90,8 @@ class TestSignIn(Base):
         app = App(self.state, self.data)
         _, _, headers = app.handle("POST", "/api/login", {"user": "priya.shah", "pin": "1357"})
         token = headers["Set-Cookie"].split("=", 1)[1].split(";")[0]
-        status, r, _ = app.handle("POST", "/api/decide", {"request": "REQ-01", "option": "approve", "actor": "jordan.lee"},
-                                  token=token)
+        status, r, _ = app.handle("POST", "/api/decide", {"request": "REQ-01", "option": "approve", "actor": "jordan.lee",
+                                                          "run_id": app.gate.run_id}, token=token)
         self.assertEqual(status, 403)                              # Priya is signed in; claiming to be Jordan doesn't work
         self.assertIn("Priya", r["error"])
 
@@ -201,3 +201,83 @@ class TestAuditIntegrity(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------- second review ----------
+
+class TestPaymentsSurviveANewRun(Base):
+    """High: approve $470, correct a source, restart, approve again -> $940 recorded paid."""
+
+    def test_payments_carry_over_and_are_not_repeated(self):
+        g = self.gate(reset=True)
+        g.decide(self.req(g, "payout_batch"), "approve", "jordan.lee")
+        scenarios.edit_csv(self.data / "vendors.csv", lambda rows: [
+            {**r, "sells": "candles and soy crafts"} if r["vendor_id"] == "V08" else r for r in rows])
+        g2 = self.gate()
+        self.assertNotEqual(g2.run_id, g.run_id)
+        self.assertEqual(sum(l["paid"] for l in g2.batch["lines"]), 470)       # remembered, not forgotten
+        g2.decide(self.req(g2, "payout_batch"), "approve", "jordan.lee")
+        self.assertEqual(sum(l["paid"] for l in g2.batch["lines"]), 470)       # not 940
+        self.assertEqual(sum(p["amount"] for p in g2.sent), 470)
+        self.assert_books_ok(g2)
+
+
+class TestStaleScreens(Base):
+    """High: a decision made on a screen for an older run was accepted."""
+
+    def test_decision_for_another_run_is_refused(self):
+        g = self.gate(reset=True)
+        with self.assertRaisesRegex(NotAllowed, "out of date"):
+            g.decide(self.req(g, "payout_batch"), "approve", "jordan.lee", run_id="RUN-old")
+        self.assertEqual(g.batch["status"], "awaiting_approval")
+
+    def test_server_requires_the_current_run_id(self):
+        app = App(self.state, self.data)
+        _, _, headers = app.handle("POST", "/api/login", {"user": "jordan.lee", "pin": "2468"})
+        token = headers["Set-Cookie"].split("=", 1)[1].split(";")[0]
+        body = {"request": "REQ-01", "option": "approve"}
+        self.assertEqual(app.handle("POST", "/api/decide", body, token=token)[0], 409)
+        self.assertEqual(app.handle("POST", "/api/decide", {**body, "run_id": "RUN-old"}, token=token)[0], 409)
+        self.assertEqual(app.handle("POST", "/api/decide", {**body, "run_id": app.gate.run_id}, token=token)[0], 200)
+
+
+class TestSavedStateTampering(Base):
+    """Medium: editing the saved account override redirected a $191 payment unnoticed."""
+
+    def test_edited_state_file_is_detected(self):
+        g = self.gate(reset=True)
+        s = json.loads(self.state.read_text())
+        s["batch"]["lines"][1]["pay_to_account"] = "6666"
+        self.state.write_text(json.dumps(s, indent=1))
+        with self.assertRaisesRegex(IntegrityError, "saved state"):
+            self.gate()
+
+    def test_payment_destination_is_checked(self):
+        g = self.gate(reset=True)
+        self.line(g, "V02")["pay_to_account"] = "6666"           # changed in memory, bypassing any decision
+        with self.assertRaisesRegex(NotAllowed, "tie out"):
+            g.decide(self.req(g, "payout_batch"), "approve", "jordan.lee")
+        self.assertEqual(sum(p["amount"] for p in g.sent), 0)
+
+
+class TestRollback(Base):
+    """Medium: a posting failure mid-decision left $296 partly recorded in memory."""
+
+    def test_failure_while_posting_rolls_everything_back(self):
+        g = self.gate(reset=True)
+        before = (len(g.ledger.entries), json.dumps(g.batch, sort_keys=True), list(g.sent))
+        real_post, calls = g.ledger.post, []
+
+        def flaky(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 3:
+                raise RuntimeError("disk full")
+            return real_post(*args, **kwargs)
+        g.ledger.post = flaky
+        with self.assertRaisesRegex(NotAllowed, "rolled back"):
+            g.decide(self.req(g, "payout_batch"), "approve", "jordan.lee")
+        self.assertEqual((len(g.ledger.entries), json.dumps(g.batch, sort_keys=True), list(g.sent)), before)
+        self.assertEqual(self.gate().batch["status"], "awaiting_approval")
+        g.ledger.post = real_post
+        g.decide(self.req(g, "payout_batch"), "approve", "jordan.lee")    # and it works once the fault is gone
+        self.assert_books_ok(g)
