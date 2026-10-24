@@ -17,14 +17,20 @@ The agent prepares; the market manager approves. The gate enforces:
   - Frozen runs: each agent run is tied to fingerprints of the files it read. If those
     files change, the old run and its approvals are archived and marked superseded, and
     a fresh run starts. Old approvals never apply to new findings.
-  - Money sent stays sent: every payment is recorded, and a run that supersedes another
-    starts from what was already paid, so nothing is paid twice.
+  - Money sent stays sent: every payment is recorded against what it paid for (a market
+    day's tokens from one vendor), not against the batch's name or payday. A run that
+    supersedes another starts from what was already paid, so nothing is paid twice, even
+    if payday moves.
   - Current screens only: a decision must name the run it was made for. A decision from
     an out-of-date screen is refused.
   - Tamper-evident audit trail: every event is appended to state/audit.jsonl, each line
     chained to the one before by a hash, and every save records a fingerprint of the saved
-    state in that chain. Saves are atomic. A missing, shortened or edited trail, or an
-    edited state file, stops the gate from starting instead of silently starting over.
+    state in that chain.
+  - One transaction per save: the new state is written to a temp file first, then its
+    audit lines are appended (the commit point), then the file is swapped in. If anything
+    fails before the commit, memory and the audit trail are rolled back. If it fails after,
+    the next start finishes the swap. A missing, shortened or edited trail, or an edited
+    state file, stops the gate from starting instead of silently starting over.
 
     python3 gate.py status
     python3 gate.py decide REQ-01 approve --as jordan.lee --pin 2468
@@ -38,6 +44,7 @@ import hashlib
 import json
 import os
 import shutil
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -83,16 +90,6 @@ def now():
     return datetime.now().isoformat(timespec="seconds")
 
 
-def write_atomic(path, text):
-    """Write to a temp file, flush it to disk, then swap it in, so a crash can't leave half a file."""
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "w") as f:
-        f.write(text)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
-
-
 class AuditLog:
     """Append-only, hash-chained event log. Editing, deleting or reordering a line breaks the chain."""
 
@@ -100,7 +97,8 @@ class AuditLog:
 
     def __init__(self, path):
         self.path = Path(path)
-        self.entries = []
+        self.entries = []      # written to disk
+        self.pending = []      # staged in a transaction, not written yet
 
     @staticmethod
     def _hash(prev, entry):
@@ -109,27 +107,49 @@ class AuditLog:
 
     @property
     def head(self):
-        return self.entries[-1]["hash"] if self.entries else self.GENESIS
+        last = (self.entries + self.pending)[-1:]
+        return last[0]["hash"] if last else self.GENESIS
 
-    def append(self, actor, step, detail):
-        e = {"seq": len(self.entries) + 1, "at": now(), "actor": actor, "step": step, "detail": detail, "prev": self.head}
+    def stage(self, actor, step, detail):
+        e = {"seq": len(self.entries) + len(self.pending) + 1, "at": now(), "actor": actor, "step": step,
+             "detail": detail, "prev": self.head}
         e["hash"] = self._hash(e["prev"], e)
+        self.pending.append(e)
+        return e
+
+    def flush(self):
+        """Write every staged line in one write. This is the commit point of a transaction."""
+        if not self.pending:
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "a") as f:
-            f.write(json.dumps(e) + "\n")
+            f.write("".join(json.dumps(e) + "\n" for e in self.pending))
             f.flush()
             os.fsync(f.fileno())
-        self.entries.append(e)
+        self.entries.extend(self.pending)
+        self.pending = []
+
+    def discard(self):
+        self.pending = []
+
+    def append(self, actor, step, detail):
+        e = self.stage(actor, step, detail)
+        self.flush()
         return e
 
     @classmethod
     def load(cls, path):
         log = cls(path)
         prev = cls.GENESIS
-        for n, line in enumerate(Path(path).read_text().splitlines(), 1):
+        lines = Path(path).read_text().splitlines()
+        for n, line in enumerate(lines, 1):
             try:
                 e = json.loads(line)
             except json.JSONDecodeError:
+                if n == len(lines):           # a write cut off mid-line by a crash: it never committed, so drop it
+                    Path(path).write_text("".join(l + "\n" for l in lines[:-1]))
+                    log.repaired = True
+                    break
                 raise IntegrityError(f"Audit trail line {n} is not valid JSON")
             if e.get("seq") != n or e.get("prev") != prev or e.get("hash") != cls._hash(prev, e):
                 raise IntegrityError(f"Audit trail was altered at line {n}: its hash chain doesn't match")
@@ -170,6 +190,15 @@ class Gate:
         self.log = AuditLog.load(self.audit_path)
         s = json.loads(self.path.read_text())
         checkpoints = [e for e in self.log.entries if e["step"] == "checkpoint"]
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        if checkpoints and tmp.exists():
+            staged = json.loads(tmp.read_text())
+            if checkpoints[-1]["detail"] == f"state sha256 {self._state_hash(staged)}":
+                os.replace(tmp, self.path)          # the audit trail committed this save; finish swapping it in
+                s = staged
+                self.log.append("agent", "recovered", "Finished a save that was interrupted after it committed")
+            else:
+                tmp.unlink()                        # a save that never committed
         if not checkpoints or checkpoints[-1]["detail"] != f"state sha256 {self._state_hash(s)}":
             raise IntegrityError("The saved state was changed outside the app: its fingerprint doesn't match the last "
                                  "checkpoint in the audit trail. Run `python3 gate.py reset` to archive and start fresh.")
@@ -222,8 +251,7 @@ class Gate:
 
     def _start(self, run, fingerprint, why, carry=None):
         self.run, self.fingerprint = run, fingerprint
-        digest = hashlib.sha256(json.dumps(fingerprint).encode()).hexdigest()[:6]
-        self.run_id = f"RUN-{datetime.now():%m%d-%H%M%S}-{digest}"
+        self.run_id = f"RUN-{datetime.now():%m%d}-{uuid.uuid4().hex[:12]}"
         self.ledger = books.build(self.a)
         self.sent, self.requests = [], []
         self.batch = copy.deepcopy(run["payout_batch"])
@@ -270,10 +298,25 @@ class Gate:
         state = {"run_id": self.run_id, "fingerprint": self.fingerprint, "run": self.run,
                  "ledger": self.ledger.to_dict(), "batch": self.batch, "requests": self.requests, "sent": self.sent}
         state = json.loads(json.dumps(state))          # the same plain-JSON form that load() will read back
-        self.log.append("agent", "checkpoint", f"state sha256 {self._state_hash(state)}")
-        state["audit_head"] = {"count": len(self.log.entries), "hash": self.log.head}
+        self.log.stage("agent", "checkpoint", f"state sha256 {self._state_hash(state)}")
+        state["audit_head"] = {"count": len(self.log.entries) + len(self.log.pending), "hash": self.log.head}
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        write_atomic(self.path, json.dumps(state, indent=1))
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        try:                                             # 1. stage the new state on disk
+            with open(tmp, "w") as f:
+                f.write(json.dumps(state, indent=1))
+                f.flush()
+                os.fsync(f.fileno())
+        except Exception:
+            self.log.discard()
+            raise
+        try:                                             # 2. commit: append the audit lines
+            self.log.flush()
+        except Exception:
+            self.log.discard()
+            tmp.unlink(missing_ok=True)
+            raise
+        os.replace(tmp, self.path)                       # 3. swap in (if this fails, the next start finishes it)
 
     @property
     def vendor_accounts(self):
@@ -288,7 +331,8 @@ class Gate:
 
     def _carry_payments(self, old):
         """A superseding run starts from the money the old run already sent."""
-        carried = [p for p in old.get("sent", []) if p["batch_id"] == self.batch["batch_id"]]
+        # match on what was paid for (market day + vendor), never on the batch name, which includes payday
+        carried = [p for p in old.get("sent", []) if p["market_date"] == self.batch["for_market_date"]]
         for p in carried:
             l = next((l for l in self.batch["lines"] if l["vendor_id"] == p["vendor_id"]), None)
             if l is None:
@@ -373,9 +417,18 @@ class Gate:
             self._refuse(actor, req_id, option, "That decision would have broken the books (" + "; ".join(broken)
                          + "), so it was rolled back and nothing was posted.")
         r["decision"]["entries"] = [e["id"] for e in entries]
-        self.log.append(actor, "decide", f"{req_id} -> {opt['label']}" + (f' ("{note}")' if note else "")
-                        + (f"; posted {', '.join(e['id'] for e in entries)}" if entries else ""))
-        self.save()
+        self.log.stage(actor, "decide", f"{req_id} -> {opt['label']}" + (f' ("{note}")' if note else "")
+                       + (f"; posted {', '.join(e['id'] for e in entries)}" if entries else ""))
+        try:
+            self.save()
+        except OSError as e:
+            if not self.log.pending and self.path.with_name(self.path.name + ".tmp").exists():
+                raise NotAllowed(f"The decision was recorded, but the final file swap failed ({e}). "
+                                 "It will be finished automatically when the app restarts.")
+            self.log.discard()
+            roll_back()
+            raise NotAllowed(f"Couldn't save the decision ({e}), so it was rolled back completely: nothing was "
+                             "paid, posted or written to the audit trail.")
         return r
 
     # ---------- holds ----------

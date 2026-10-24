@@ -281,3 +281,77 @@ class TestRollback(Base):
         g.ledger.post = real_post
         g.decide(self.req(g, "payout_batch"), "approve", "jordan.lee")    # and it works once the fault is gone
         self.assert_books_ok(g)
+
+
+# ---------- third review ----------
+
+class TestReschedulingPayday(Base):
+    """High: moving payday from Oct 20 to Oct 21 renamed the batch, and $470 was paid again."""
+
+    def test_moving_payday_does_not_pay_twice(self):
+        g = self.gate(reset=True)
+        g.decide(self.req(g, "payout_batch"), "approve", "jordan.lee")
+        cfg = json.loads((self.data / "market_config.json").read_text())
+        cfg["next_payout_date"] = "2026-10-21"
+        (self.data / "market_config.json").write_text(json.dumps(cfg, indent=2))
+        g2 = self.gate()
+        self.assertNotEqual(g2.batch["batch_id"], g.batch["batch_id"])
+        self.assertEqual(sum(l["paid"] for l in g2.batch["lines"]), 470)      # already sent, so remembered
+        g2.decide(self.req(g2, "payout_batch"), "approve", "jordan.lee")
+        self.assertEqual(sum(l["paid"] for l in g2.batch["lines"]), 470)      # not 940
+        self.assertEqual(sum(p["amount"] for p in g2.sent), 470)
+        self.assert_books_ok(g2)
+
+
+class TestSaveIsOneTransaction(Base):
+    """High: a failed state-file write left $470 marked sent in memory and a mismatched audit trail."""
+
+    def test_failed_save_rolls_back_memory_and_audit(self):
+        import gate as gate_mod
+        g = self.gate(reset=True)
+        audit_before = self.gate_audit_text()
+        real_open = gate_mod.open if hasattr(gate_mod, "open") else open
+
+        def failing_open(path, *args, **kwargs):
+            if str(path).endswith("gate.json.tmp"):
+                raise OSError("disk full")
+            return real_open(path, *args, **kwargs)
+        gate_mod.open = failing_open
+        try:
+            with self.assertRaisesRegex(NotAllowed, "rolled back"):
+                g.decide(self.req(g, "payout_batch"), "approve", "jordan.lee")
+        finally:
+            del gate_mod.open
+        self.assertEqual((sum(p["amount"] for p in g.sent), g.batch["status"]), (0, "awaiting_approval"))
+        self.assertEqual(self.gate_audit_text(), audit_before)
+        g2 = self.gate()                                            # restarts cleanly
+        self.assertEqual(g2.batch["status"], "awaiting_approval")
+
+    def test_interrupted_swap_is_finished_on_restart(self):
+        import gate as gate_mod
+        g = self.gate(reset=True)
+        real_replace = gate_mod.os.replace
+
+        def crash(src, dst):
+            raise OSError("power cut")
+        gate_mod.os.replace = crash
+        try:
+            g.decide(self.req(g, "payout_batch"), "approve", "jordan.lee")   # audit says committed, file swap didn't happen
+        except NotAllowed:
+            pass
+        finally:
+            gate_mod.os.replace = real_replace
+        g2 = self.gate()
+        self.assertEqual((g2.batch["status"], sum(p["amount"] for p in g2.sent)), ("approved", 470))
+        self.assertTrue(any(e["step"] == "recovered" for e in g2.audit))
+
+    def gate_audit_text(self):
+        return (self.state.parent / "audit.jsonl").read_text()
+
+
+class TestRunIdsAreUnique(Base):
+    """Medium: three resets within one second produced the same run ID."""
+
+    def test_resets_get_distinct_run_ids(self):
+        ids = {self.gate(reset=True).run_id for _ in range(3)}
+        self.assertEqual(len(ids), 3)

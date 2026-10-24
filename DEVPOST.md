@@ -47,7 +47,7 @@ The agent takes over on a Monday after the volunteer treasurer quits. It:
 - **Real:** how SNAP token and match programs work (no hot food on SNAP, match capped per shopper per day, the grant reimbursing redeemed match, vendors paid per token), and double-entry accounting.
 - **Planted mistakes and an answer key:** 9 mistakes, from a duplicated swipe to a fake bank-change email the day before payday, plus 3 traps. The agent is blocked from reading the answer key.
 - **Score:** 9/9 caught, 9/9 right action, 0 false alarms, and Tuesday's payment batch exactly right.
-- **90 automated tests.** They check the answer key against the raw files, grade the agent, test every ledger rule (unbalanced entries, unknown accounts, closed months), test every approval rule, and edit the data in "what if" scenarios to show the agent reasons instead of memorizing.
+- **94 automated tests.** They check the answer key against the raw files, grade the agent, test every ledger rule (unbalanced entries, unknown accounts, closed months), test every approval rule, and edit the data in "what if" scenarios to show the agent reasons instead of memorizing.
 
 ## How I built it
 
@@ -66,7 +66,7 @@ I kept every money decision in tested, repeatable code, and used Claude where it
 
 - **My own tests caught my own bug.** I planted 18 tokens for a vendor without subtracting them from what shoppers held, so fake shoppers spent tokens they didn't have. The answer-key tests failed, and I fixed the generator.
 - **A "judge-style" scenario exposed a real flaw.** When I inflated a second vendor's count, the agent held that vendor but released Green Acres, which was still far above normal. Now it holds every unusually high count and splits the missing tokens between them in proportion.
-- **An outside review broke it, and I fixed it.** Overlapping holds let one vendor be paid $441 against $273 owed, even though the books still "balanced". Approvals could be faked by sending a name. Approvals survived edits to the records. I reproduced all six weaknesses as failing tests, then fixed each one: per-payment blocker lists, server sign-in sessions, frozen runs, "books must tie out before any approval", and a hash-chained audit trail. A second round found four more, including a $940 double payment across runs and a stale screen approving a newer run, and I fixed those the same way: reproduce first, then fix.
+- **An outside review broke it, and I fixed it.** Overlapping holds let one vendor be paid $441 against $273 owed, even though the books still "balanced". Approvals could be faked by sending a name. Approvals survived edits to the records. I reproduced all six weaknesses as failing tests, then fixed each one: per-payment blocker lists, server sign-in sessions, frozen runs, "books must tie out before any approval", and a hash-chained audit trail. A second round found four more, including a $940 double payment across runs and a stale screen approving a newer run, and I fixed those the same way: reproduce first, then fix. A third round found three lifecycle gaps (moving payday, a save failing halfway, repeated run IDs), now fixed too.
 - **Traps vs. real problems.** Checking tokens day by day flags the rainy Saturday falsely. Checking season to date gets it right.
 - **[Anything else that was hard for you personally: building solo, learning accounting terms, time.]**
 

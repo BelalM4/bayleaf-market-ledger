@@ -6,7 +6,7 @@ An autonomous bookkeeper for a farmers' market's food-stamp token program.
 everything; only the market manager can approve money going out.
 
 > Status: working end to end: data, agent, double-entry books, approval gate and
-> web app with "ask why" (90 tests). The agent catches 9/9 planted mistakes with 0 false alarms.
+> web app with "ask why" (94 tests). The agent catches 9/9 planted mistakes with 0 false alarms.
 
 Demo script and judge Q&A: [DEMO.md](DEMO.md). Devpost draft: [DEVPOST.md](DEVPOST.md).
 
@@ -234,6 +234,14 @@ A second review round found four more, also fixed and tested:
 | Editing the saved account override redirected a $191 payment unnoticed | Every save records a fingerprint of the state file in the audit chain, so an edited file stops the app. Payment destinations aren't stored on their own; they're worked out from phone-verified decisions, and a tie-out checks every payment goes to the account on file or a confirmed one. |
 | A posting failure mid-decision left $296 partly recorded in memory | Any failure during a decision rolls back everything (journal entries, the payment batch, payments sent, the request) and nothing is saved. |
 
+A third round found three lifecycle gaps, also fixed and tested:
+
+| Weakness found | Fix |
+|---|---|
+| Moving payday from Oct 20 to Oct 21 renamed the batch, and $470 was paid again | Payments are matched to what they paid for (one vendor's tokens from one market day), never to the batch name or payday. |
+| A failed state-file write left $470 marked sent in memory and an audit trail that disagreed with the saved state | Each save is one transaction. The new state goes to a temp file, then its audit lines are appended in one write (the commit point), then the file is swapped in. A failure before the commit rolls back memory and the audit trail; a failure after it is finished on the next start. |
+| Three resets in one second got the same run ID | Run IDs are random (UUID-based), so every run is distinct. |
+
 **Known limits** (it's a hackathon prototype):
 - Someone with full access to this computer could rewrite the state *and* recompute the whole audit chain, or delete everything at once. Nothing on one machine can prove otherwise. The Audit tab shows the chain's head hash so it can be written down or sent elsewhere.
 - Sessions live in the server's memory, so restarting the server signs everyone out.
@@ -250,7 +258,7 @@ python3 agent.py              # the agent's findings and Tuesday's payment batch
 python3 score.py              # grades the agent against the answer key
 python3 gate.py status        # the approval queue and the books
 python3 server.py             # the web app at http://localhost:8000
-python3 -m unittest -v        # 90 tests
+python3 -m unittest -v        # 94 tests
 ```
 
 Current score: **9/9 caught, 9/9 right action, 0 false alarms, payment batch exact.**
