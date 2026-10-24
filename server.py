@@ -74,7 +74,7 @@ class App:
             # outside the lock: a Claude answer can take a few seconds and shouldn't freeze the page
             result = explain.ask(self.gate, body.get("finding", ""), body.get("question", ""), client=client)
             with self.lock:
-                self.gate.log.append(me or "viewer", "asked_why", f"{result['finding_id']}: \"{result.get('question', '')}\" "
+                self.gate.log.stage(me or "viewer", "asked_why", f"{result['finding_id']}: \"{result.get('question', '')}\" "
                                                                  f"(answered by {result['source']})")
                 self.gate.save()
             return 200, {"ok": True, "result": result}, {}
@@ -84,12 +84,12 @@ class App:
             if method == "POST" and path == "/api/login":
                 user = body.get("user", "")
                 if not self.gate.authenticate(user, str(body.get("pin", ""))):
-                    self.gate.log.append(user or "unknown", "sign_in_failed", "Wrong PIN, or a user that can't sign in")
+                    self.gate.log.stage(user or "unknown", "sign_in_failed", "Wrong PIN, or a user that can't sign in")
                     self.gate.save()
                     return 401, {"ok": False, "error": "Wrong PIN, or that user can't sign in."}, {}
                 new = secrets.token_urlsafe(24)
                 self.sessions[new] = user
-                self.gate.log.append(user, "signed_in", f"{self.gate.config['users'][user]['name']} signed in")
+                self.gate.log.stage(user, "signed_in", f"{self.gate.config['users'][user]['name']} signed in")
                 self.gate.save()
                 return 200, {"ok": True, "state": self.state(user)}, \
                     {"Set-Cookie": f"session={new}; HttpOnly; SameSite=Strict; Path=/"}
@@ -121,7 +121,7 @@ class App:
                 if not me or self.gate.config["users"][me]["role"] != "market_manager":
                     return 401, {"ok": False, "error": "Only a signed-in market manager can reset the demo."}, {}
                 self.gate = Gate(self.state_path, self.data_dir, reset=True)
-                self.gate.log.append(me, "reset_by", f"Demo reset by {self.gate.config['users'][me]['name']}")
+                self.gate.log.stage(me, "reset_by", f"Demo reset by {self.gate.config['users'][me]['name']}")
                 self.gate.save()
                 return 200, {"ok": True, "state": self.state(me)}, {}
             if method == "POST" and path == "/api/scenario":

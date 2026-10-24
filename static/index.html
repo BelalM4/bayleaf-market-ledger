@@ -328,7 +328,7 @@ const views = {
       <div class="grid2"><div class="card"><h3>What's real, what's simulated</h3>
         <p class="small"><b>Simulated:</b> the market, every vendor, shopper, swipe, deposit and dollar (8 Saturdays, Aug 29 to Oct 17, 2026).</p>
         <p class="small"><b>Real:</b> how SNAP token and matching programs work: no hot food on SNAP, match capped per shopper per day, the grant reimbursing redeemed match, vendors paid per token.</p>
-        <p class="small"><b>How we know it works:</b> 94 automated tests (<code>python3 -m unittest</code>). They check the answer key against the raw files, grade the agent, test every ledger rule and approval rule,
+        <p class="small"><b>How we know it works:</b> 101 automated tests (<code>python3 -m unittest</code>). They check the answer key against the raw files, grade the agent, test every ledger rule and approval rule,
         and change the data in "what if" scenarios to show the agent reasons instead of memorizing.</p></div>
       <div class="card"><h3>What the agent read</h3><p class="muted small">Fingerprints of every file behind this run, so any decision can be traced to the exact data.</p>
         <table>${S.sources_read.map((s) => `<tr><td>${esc(s.file)}</td><td class="muted small" style="font-family:ui-monospace,monospace">${s.sha256}</td></tr>`).join("")}</table></div></div>`;

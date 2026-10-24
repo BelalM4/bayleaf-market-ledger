@@ -355,3 +355,111 @@ class TestRunIdsAreUnique(Base):
     def test_resets_get_distinct_run_ids(self):
         ids = {self.gate(reset=True).run_id for _ in range(3)}
         self.assertEqual(len(ids), 3)
+
+
+# ---------- fourth review: fault injection at every save stage ----------
+
+class FaultyFile:
+    """Wraps a real file; can fail on write (optionally after writing part of it)."""
+
+    def __init__(self, f, fail_write=False, partial=False):
+        self.f, self.fail_write, self.partial = f, fail_write, partial
+
+    def write(self, text):
+        if self.fail_write:
+            if self.partial:
+                self.f.write(text[: len(text) // 2])
+                self.f.flush()
+            raise OSError("write failed")
+        return self.f.write(text)
+
+    def __getattr__(self, name):
+        return getattr(self.f, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.f.close()
+
+
+class TestEverySaveStage(Base):
+    """Fail at each stage of saving a batch approval. Before the audit commit: everything rolls back and a
+    restart shows the old state. After it: the restart finishes the save. Never a mix."""
+
+    def run_with_fault(self, stage):
+        import gate as gate_mod
+        g = self.gate(reset=True)
+        audit_before = g.audit_path.read_text()
+        real_open, real_fsync, real_replace = open, gate_mod.os.fsync, gate_mod.os.replace
+        target = {"tmp_write": "gate.json.tmp", "tmp_fsync": "gate.json.tmp", "audit_open": "audit.jsonl",
+                  "audit_write": "audit.jsonl", "audit_partial": "audit.jsonl", "audit_fsync": "audit.jsonl"}.get(stage)
+        opened = {}
+
+        def fake_open(path, mode="r", *a, **k):
+            f = real_open(path, mode, *a, **k)
+            if "w" in mode or "a" in mode:
+                opened[f.fileno()] = str(path)
+            if target and str(path).endswith(target) and mode != "r":
+                if stage == "audit_open":
+                    f.close()
+                    raise OSError("can't open")
+                if stage in ("tmp_write", "audit_write", "audit_partial"):
+                    return FaultyFile(f, fail_write=True, partial=stage == "audit_partial")
+            return f
+
+        def fake_fsync(fd):
+            if target and opened.get(fd, "").endswith(target) and stage.endswith("fsync"):
+                raise OSError("fsync failed")
+            return real_fsync(fd)
+
+        def fake_replace(src, dst):
+            if stage == "swap":
+                raise OSError("power cut")
+            return real_replace(src, dst)
+
+        gate_mod.open, gate_mod.os.fsync, gate_mod.os.replace = fake_open, fake_fsync, fake_replace
+        try:
+            with self.assertRaises(NotAllowed) as caught:
+                g.decide(self.req(g, "payout_batch"), "approve", "jordan.lee")
+        finally:
+            del gate_mod.open
+            gate_mod.os.fsync, gate_mod.os.replace = real_fsync, real_replace
+        return g, audit_before, str(caught.exception)
+
+    def assert_rolled_back(self, stage):
+        g, audit_before, message = self.run_with_fault(stage)
+        self.assertIn("rolled back", message, stage)
+        self.assertEqual((sum(p["amount"] for p in g.sent), g.batch["status"]), (0, "awaiting_approval"), stage)
+        self.assertEqual(g.request(self.req(g, "payout_batch"))["status"], "pending", stage)
+        g2 = self.gate()
+        self.assertEqual((g2.batch["status"], sum(p["amount"] for p in g2.sent)), ("awaiting_approval", 0), stage)
+        self.assertFalse(any(e["step"] == "decide" for e in g2.audit), stage)
+        self.assert_books_ok(g2)
+        g2.decide(self.req(g2, "payout_batch"), "approve", "jordan.lee")    # and it works once the fault is gone
+        self.assertEqual(sum(p["amount"] for p in g2.sent), 470)
+
+    def test_fail_writing_the_temp_file(self):
+        self.assert_rolled_back("tmp_write")
+
+    def test_fail_syncing_the_temp_file(self):
+        self.assert_rolled_back("tmp_fsync")
+
+    def test_fail_opening_the_audit_trail(self):
+        self.assert_rolled_back("audit_open")
+
+    def test_fail_writing_the_audit_trail(self):
+        self.assert_rolled_back("audit_write")
+
+    def test_audit_write_cut_off_halfway(self):
+        self.assert_rolled_back("audit_partial")
+
+    def test_fail_syncing_the_audit_trail(self):
+        self.assert_rolled_back("audit_fsync")
+
+    def test_fail_at_the_final_swap_is_finished_on_restart(self):
+        g, _, message = self.run_with_fault("swap")
+        self.assertIn("finished automatically", message)
+        g2 = self.gate()
+        self.assertEqual((g2.batch["status"], sum(p["amount"] for p in g2.sent)), ("approved", 470))
+        self.assert_books_ok(g2)

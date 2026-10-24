@@ -6,7 +6,7 @@ An autonomous bookkeeper for a farmers' market's food-stamp token program.
 everything; only the market manager can approve money going out.
 
 > Status: working end to end: data, agent, double-entry books, approval gate and
-> web app with "ask why" (94 tests). The agent catches 9/9 planted mistakes with 0 false alarms.
+> web app with "ask why" (101 tests). The agent catches 9/9 planted mistakes with 0 false alarms.
 
 Demo script and judge Q&A: [DEMO.md](DEMO.md). Devpost draft: [DEVPOST.md](DEVPOST.md).
 
@@ -242,7 +242,15 @@ A third round found three lifecycle gaps, also fixed and tested:
 | A failed state-file write left $470 marked sent in memory and an audit trail that disagreed with the saved state | Each save is one transaction. The new state goes to a temp file, then its audit lines are appended in one write (the commit point), then the file is swapped in. A failure before the commit rolls back memory and the audit trail; a failure after it is finished on the next start. |
 | Three resets in one second got the same run ID | Run IDs are random (UUID-based), so every run is distinct. |
 
+A fourth check found that a failure while syncing the temp file was misreported as committed: the page said "recorded", memory said $470 sent, but the audit trail and the restart said nothing happened. The cause was guessing the commit from a leftover temp file. Now:
+
+- **The complete checkpoint line in the audit trail is the only commit marker.** Every audit event is staged and written by one save transaction that ends with that checkpoint.
+- `save()` reports which side of the commit a failure happened on, and the decision either rolls back completely or is finished on restart. It never guesses from leftover files.
+- If an audit write fails, the file is cut back to where it was (best effort). On start, any lines after the last complete checkpoint are dropped as never committed, which covers a write cut off partway.
+- Fault-injection tests fail the save at every stage: writing and syncing the temp file, opening, writing, half-writing and syncing the audit trail, and the final swap.
+
 **Known limits** (it's a hackathon prototype):
+- These tests simulate failures inside Python. They aren't a certification of crash safety on every disk or operating system.
 - Someone with full access to this computer could rewrite the state *and* recompute the whole audit chain, or delete everything at once. Nothing on one machine can prove otherwise. The Audit tab shows the chain's head hash so it can be written down or sent elsewhere.
 - Sessions live in the server's memory, so restarting the server signs everyone out.
 - Run one copy at a time: don't run `gate.py` commands while `server.py` is running.
@@ -258,7 +266,7 @@ python3 agent.py              # the agent's findings and Tuesday's payment batch
 python3 score.py              # grades the agent against the answer key
 python3 gate.py status        # the approval queue and the books
 python3 server.py             # the web app at http://localhost:8000
-python3 -m unittest -v        # 94 tests
+python3 -m unittest -v        # 101 tests
 ```
 
 Current score: **9/9 caught, 9/9 right action, 0 false alarms, payment batch exact.**
